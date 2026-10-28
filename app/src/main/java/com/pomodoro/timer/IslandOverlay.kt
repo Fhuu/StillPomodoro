@@ -20,11 +20,13 @@ import kotlin.math.roundToInt
 object IslandOverlay {
     private const val COMPACT_W_DP = 94
     private const val COMPACT_H_DP = 34
+    private const val RING_ONLY_BASE_DP = 30
     private const val PILL_TOP_BASE_DP = 36
 
     private var wm: WindowManager? = null
     private var shell: FrameLayout? = null
     private var compactPanel: LinearLayout? = null
+    private var compactRow: LinearLayout? = null
     private var compactTime: TextView? = null
     private var compactProgress: IslandProgressBar? = null
     private var compactRing: IslandRingView? = null
@@ -76,11 +78,13 @@ object IslandOverlay {
     }
 
     fun hide() {
+        compactRing?.setPulsing(false)
         shell?.let { wm?.removeView(it) }
         shell = null
         wm = null
         appContext = null
         compactPanel = null
+        compactRow = null
         compactTime = null
         compactProgress = null
         compactRing = null
@@ -120,14 +124,19 @@ object IslandOverlay {
     fun refresh(context: Context) {
         val ctx = appContext ?: context.applicationContext
         val phase = TimerStore.phase(ctx)
+        val style = TimerStore.islandCompactStyle(ctx)
         val time = TimerStore.formatRemainingMinutes(ctx)
         val prog = TimerStore.phaseProgress(ctx)
-        val color = accentColor(phase)
+        val barColor = accentColor(phase)
+        val ringColor = TimerStore.islandRingColor(ctx)
+        val running = TimerStore.isSessionActive(ctx) && !TimerStore.isSessionPaused(ctx)
         compactTime?.text = time
         compactProgress?.progress = prog
-        compactProgress?.barColor = color
+        compactProgress?.barColor = barColor
         compactRing?.progress = prog
-        compactRing?.ringColor = color
+        compactRing?.ringColor = ringColor
+        compactRing?.drawTrack = style != TimerStore.IslandCompactStyle.RING_ONLY
+        compactRing?.setPulsing(style == TimerStore.IslandCompactStyle.RING_ONLY && running)
     }
 
     fun reloadArt(context: Context) {
@@ -170,7 +179,7 @@ object IslandOverlay {
             layoutParams = LinearLayout.LayoutParams(dp(context, 20), dp(context, 20))
             visibility = View.GONE
         }
-        val compactRow = LinearLayout(context).apply {
+        val compactRowLayout = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -187,13 +196,14 @@ object IslandOverlay {
             addView(compactSpacer)
             addView(compactRing)
         }
+        compactRow = compactRowLayout
         compactPanel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
             isClickable = false
             isFocusable = false
             setPadding(dp(context, 10), dp(context, 5), dp(context, 10), dp(context, 5))
-            addView(compactRow)
+            addView(compactRowLayout)
             addView(compactProgress)
         }
         shell = FrameLayout(context).apply {
@@ -211,14 +221,24 @@ object IslandOverlay {
     private fun measureSizes(context: Context) {
         val sw = TimerStore.islandScaleWidthPercent(context) / 100f
         val sh = TimerStore.islandScaleHeightPercent(context) / 100f
+        if (TimerStore.islandCompactStyle(context) == TimerStore.IslandCompactStyle.RING_ONLY) {
+            val side = dp(context, (RING_ONLY_BASE_DP * sw).roundToInt())
+            compactW = side
+            compactH = side
+            return
+        }
         compactW = dp(context, (COMPACT_W_DP * sw).roundToInt())
         val scaledH = dp(context, (COMPACT_H_DP * sh).roundToInt())
         compactH = max(scaledH, compactContentMinHeight(context))
     }
 
     private fun compactContentMinHeight(context: Context): Int {
+        val style = TimerStore.islandCompactStyle(context)
+        if (style == TimerStore.IslandCompactStyle.RING_ONLY) {
+            return dp(context, RING_ONLY_BASE_DP)
+        }
         val padV = dp(context, 10)
-        val bar = TimerStore.islandCompactStyle(context) == TimerStore.IslandCompactStyle.BAR
+        val bar = style == TimerStore.IslandCompactStyle.BAR
         val row = dp(context, 18)
         val progress = if (bar) dp(context, 9) else 0
         val ring = if (bar) 0 else dp(context, 22)
@@ -226,22 +246,47 @@ object IslandOverlay {
     }
 
     private fun syncCompactStyle(context: Context) {
-        val bar = TimerStore.islandCompactStyle(context) == TimerStore.IslandCompactStyle.BAR
+        val style = TimerStore.islandCompactStyle(context)
+        val bar = style == TimerStore.IslandCompactStyle.BAR
+        val ringOnly = style == TimerStore.IslandCompactStyle.RING_ONLY
+        pillBg?.visibility = if (ringOnly) View.GONE else View.VISIBLE
         compactProgress?.visibility = if (bar) View.VISIBLE else View.GONE
         compactRing?.visibility = if (bar) View.GONE else View.VISIBLE
-        compactSpacer?.visibility = if (bar) View.GONE else View.VISIBLE
-        val timeLp = compactTime?.layoutParams as? LinearLayout.LayoutParams ?: return
-        if (bar) {
-            timeLp.width = LinearLayout.LayoutParams.MATCH_PARENT
-            timeLp.weight = 0f
-            compactTime?.gravity = Gravity.CENTER
-        } else {
-            timeLp.width = LinearLayout.LayoutParams.WRAP_CONTENT
-            timeLp.weight = 0f
-            compactTime?.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+        compactTime?.visibility = if (ringOnly) View.GONE else View.VISIBLE
+        compactSpacer?.visibility = if (style == TimerStore.IslandCompactStyle.RING) View.VISIBLE else View.GONE
+        val pad = if (ringOnly) 0 else dp(context, 10)
+        val padV = if (ringOnly) 0 else dp(context, 5)
+        compactPanel?.setPadding(pad, padV, pad, padV)
+        val rowLp = compactRow?.layoutParams as? LinearLayout.LayoutParams
+        if (rowLp != null) {
+            rowLp.height = if (ringOnly) LinearLayout.LayoutParams.MATCH_PARENT else LinearLayout.LayoutParams.WRAP_CONTENT
+            compactRow?.layoutParams = rowLp
+            compactRow?.gravity = if (ringOnly) Gravity.CENTER else Gravity.CENTER_VERTICAL
         }
-        compactTime?.layoutParams = timeLp
-        updateRingSize(context)
+        val timeLp = compactTime?.layoutParams as? LinearLayout.LayoutParams
+        if (timeLp != null) {
+            if (bar) {
+                timeLp.width = LinearLayout.LayoutParams.MATCH_PARENT
+                timeLp.weight = 0f
+                compactTime?.gravity = Gravity.CENTER
+            } else if (!ringOnly) {
+                timeLp.width = LinearLayout.LayoutParams.WRAP_CONTENT
+                timeLp.weight = 0f
+                compactTime?.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            }
+            compactTime?.layoutParams = timeLp
+        }
+        val ringLp = compactRing?.layoutParams as? LinearLayout.LayoutParams ?: return
+        if (ringOnly) {
+            ringLp.width = LinearLayout.LayoutParams.MATCH_PARENT
+            ringLp.height = LinearLayout.LayoutParams.MATCH_PARENT
+            ringLp.weight = 0f
+            compactPanel?.gravity = Gravity.CENTER
+        } else {
+            compactPanel?.gravity = Gravity.CENTER_VERTICAL
+            updateRingSize(context)
+        }
+        compactRing?.layoutParams = ringLp
     }
 
     private fun updateRingSize(context: Context) {
@@ -251,6 +296,7 @@ object IslandOverlay {
     }
 
     private fun updateShellLook(context: Context, widthPx: Int, heightPx: Int) {
+        if (TimerStore.islandCompactStyle(context) == TimerStore.IslandCompactStyle.RING_ONLY) return
         val radius = if (widthPx > 0 && heightPx > 0) minOf(widthPx, heightPx) / 2f
         else dp(context, COMPACT_H_DP) / 2f
         pillBg?.fillColor = 0xFF000000.toInt()

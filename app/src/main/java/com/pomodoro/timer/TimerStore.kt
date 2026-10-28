@@ -168,7 +168,7 @@ object TimerStore {
         prefs(context).edit().putInt("cutout_offset_y_dp", dp.coerceIn(-80, 80)).apply()
     }
 
-    enum class IslandCompactStyle { BAR, RING }
+    enum class IslandCompactStyle { BAR, RING, RING_ONLY }
 
     private fun legacyIslandScale(context: Context): Int =
         prefs(context).getInt("island_scale_pct", 100).coerceIn(60, 160)
@@ -194,6 +194,13 @@ object TimerStore {
 
     fun setIslandCompactStyle(context: Context, style: IslandCompactStyle) {
         prefs(context).edit().putString("island_compact_style", style.name).apply()
+    }
+
+    fun islandRingColor(context: Context): Int =
+        prefs(context).getInt("island_ring_color", 0xFFC56B4A.toInt())
+
+    fun setIslandRingColor(context: Context, color: Int) {
+        prefs(context).edit().putInt("island_ring_color", color).apply()
     }
 
     fun isSessionActive(context: Context): Boolean {

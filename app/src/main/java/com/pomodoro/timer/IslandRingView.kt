@@ -1,10 +1,12 @@
 package com.pomodoro.timer
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.view.View
+import android.view.animation.AccelerateDecelerateInterpolator
 
 class IslandRingView(context: Context) : View(context) {
     var progress: Float = 0f
@@ -17,6 +19,14 @@ class IslandRingView(context: Context) : View(context) {
             field = value
             invalidate()
         }
+    var drawTrack: Boolean = true
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    private var ringAlpha = 1f
+    private var pulseAnimator: ValueAnimator? = null
 
     private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -30,13 +40,43 @@ class IslandRingView(context: Context) : View(context) {
     }
     private val rect = RectF()
 
-    override fun onDraw(canvas: Canvas) {
-        val pad = track.strokeWidth / 2f + 1f
-        rect.set(pad, pad, width - pad, height - pad)
-        canvas.drawArc(rect, -90f, 360f, false, track)
-        if (progress > 0f) {
-            arc.color = ringColor
-            canvas.drawArc(rect, -90f, 360f * progress, false, arc)
+    fun setPulsing(active: Boolean) {
+        if (active) {
+            if (pulseAnimator?.isRunning == true) return
+            pulseAnimator?.cancel()
+            pulseAnimator = ValueAnimator.ofFloat(0.4f, 1f).apply {
+                duration = 900
+                repeatMode = ValueAnimator.REVERSE
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = AccelerateDecelerateInterpolator()
+                addUpdateListener {
+                    ringAlpha = it.animatedValue as Float
+                    invalidate()
+                }
+                start()
+            }
+        } else {
+            pulseAnimator?.cancel()
+            pulseAnimator = null
+            ringAlpha = 1f
+            invalidate()
         }
+    }
+
+    override fun onDetachedFromWindow() {
+        setPulsing(false)
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val pad = arc.strokeWidth / 2f + 1f
+        rect.set(pad, pad, width - pad, height - pad)
+        if (drawTrack) {
+            canvas.drawArc(rect, -90f, 360f, false, track)
+        }
+        val sweep = if (progress > 0f) 360f * progress else 360f
+        arc.color = ringColor
+        arc.alpha = (ringAlpha * 255f).toInt().coerceIn(0, 255)
+        canvas.drawArc(rect, -90f, sweep, false, arc)
     }
 }

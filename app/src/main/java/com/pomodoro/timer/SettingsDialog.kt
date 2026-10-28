@@ -4,9 +4,16 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -45,6 +53,7 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
     var islandStyle by remember(open) {
         mutableStateOf(TimerStore.islandCompactStyle(context))
     }
+    var ringColor by remember(open) { mutableIntStateOf(TimerStore.islandRingColor(context)) }
 
     fun applyPosition() {
         TimerStore.setCutoutOffsetXDp(context, islandX.roundToInt())
@@ -158,6 +167,44 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
                         modifier = Modifier.weight(1f),
                         enabled = islandStyle != TimerStore.IslandCompactStyle.RING
                     ) { Text("Ring") }
+                }
+                OutlinedButton(
+                    onClick = {
+                        islandStyle = TimerStore.IslandCompactStyle.RING_ONLY
+                        TimerStore.setIslandCompactStyle(context, islandStyle)
+                        IslandOverlay.applyAppearance(context)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = islandStyle != TimerStore.IslandCompactStyle.RING_ONLY
+                ) { Text("Ring only (no pill)") }
+                if (islandStyle != TimerStore.IslandCompactStyle.BAR) {
+                    Text("Ring color", style = MaterialTheme.typography.labelLarge)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        listOf(
+                            0xFFC56B4A.toInt() to "Terracotta",
+                            0xFF8A9A7B.toInt() to "Sage",
+                            0xFFF4EFE6.toInt() to "Cream",
+                            0xFFFFFFFF.toInt() to "White",
+                            0xFF5B8DEF.toInt() to "Blue",
+                            0xFF2A2826.toInt() to "Ink",
+                        ).forEach { (argb, _) ->
+                            val selected = ringColor == argb
+                            Box(
+                                Modifier
+                                    .size(if (selected) 34.dp else 28.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(argb))
+                                    .clickable {
+                                        ringColor = argb
+                                        TimerStore.setIslandRingColor(context, argb)
+                                        IslandOverlay.applyAppearance(context)
+                                    }
+                            )
+                        }
+                    }
                 }
                 if (Build.VERSION.SDK_INT >= 33 && !AppPermissions.notificationsGranted(context)) {
                     OutlinedButton(
