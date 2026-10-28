@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">just pomodoro</string>
+    <string name="widget_description">just pomodoro timer</string>
+    <string name="quick_widget_description">Start just pomodoro</string>
+    <string name="channel_name">just pomodoro</string>
+    <string name="focus">Focus</string>
+    <string name="break_time">Break</string>
+    <string name="idle">Ready</string>
+</resources>
