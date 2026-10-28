@@ -46,24 +46,54 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
     val context = LocalContext.current
     val items = AppPermissions.checklist(context)
     val allOk = AppPermissions.allRequiredGranted(context)
-    var islandX by remember(open) { mutableFloatStateOf(TimerStore.cutoutOffsetXDp(context).toFloat()) }
-    var islandY by remember(open) { mutableFloatStateOf(TimerStore.cutoutOffsetYDp(context).toFloat()) }
-    var islandScaleW by remember(open) { mutableFloatStateOf(TimerStore.islandScaleWidthPercent(context).toFloat()) }
-    var islandScaleH by remember(open) { mutableFloatStateOf(TimerStore.islandScaleHeightPercent(context).toFloat()) }
     var islandStyle by remember(open) {
         mutableStateOf(TimerStore.islandCompactStyle(context))
     }
-    var ringColor by remember(open) { mutableIntStateOf(TimerStore.islandRingColor(context)) }
+    var islandX by remember(open) {
+        val s = TimerStore.islandCompactStyle(context)
+        mutableFloatStateOf(TimerStore.cutoutOffsetXDp(context, s).toFloat())
+    }
+    var islandY by remember(open) {
+        val s = TimerStore.islandCompactStyle(context)
+        mutableFloatStateOf(TimerStore.cutoutOffsetYDp(context, s).toFloat())
+    }
+    var islandScaleW by remember(open) {
+        val s = TimerStore.islandCompactStyle(context)
+        mutableFloatStateOf(TimerStore.islandScaleWidthPercent(context, s).toFloat())
+    }
+    var islandScaleH by remember(open) {
+        val s = TimerStore.islandCompactStyle(context)
+        mutableFloatStateOf(TimerStore.islandScaleHeightPercent(context, s).toFloat())
+    }
+    var ringColor by remember(open) {
+        val s = TimerStore.islandCompactStyle(context)
+        mutableIntStateOf(TimerStore.islandRingColor(context, s))
+    }
+
+    fun loadIslandForStyle(style: TimerStore.IslandCompactStyle) {
+        islandX = TimerStore.cutoutOffsetXDp(context, style).toFloat()
+        islandY = TimerStore.cutoutOffsetYDp(context, style).toFloat()
+        islandScaleW = TimerStore.islandScaleWidthPercent(context, style).toFloat()
+        islandScaleH = TimerStore.islandScaleHeightPercent(context, style).toFloat()
+        ringColor = TimerStore.islandRingColor(context, style)
+    }
+
+    fun selectIslandStyle(style: TimerStore.IslandCompactStyle) {
+        islandStyle = style
+        TimerStore.setIslandCompactStyle(context, style)
+        loadIslandForStyle(style)
+        IslandOverlay.applyAppearance(context)
+    }
 
     fun applyPosition() {
-        TimerStore.setCutoutOffsetXDp(context, islandX.roundToInt())
-        TimerStore.setCutoutOffsetYDp(context, islandY.roundToInt())
+        TimerStore.setCutoutOffsetXDp(context, islandStyle, islandX.roundToInt())
+        TimerStore.setCutoutOffsetYDp(context, islandStyle, islandY.roundToInt())
         IslandOverlay.applyPosition(context)
     }
 
     fun applyAppearance() {
-        TimerStore.setIslandScaleWidthPercent(context, islandScaleW.roundToInt())
-        TimerStore.setIslandScaleHeightPercent(context, islandScaleH.roundToInt())
+        TimerStore.setIslandScaleWidthPercent(context, islandStyle, islandScaleW.roundToInt())
+        TimerStore.setIslandScaleHeightPercent(context, islandStyle, islandScaleH.roundToInt())
         IslandOverlay.applyAppearance(context)
     }
 
@@ -120,9 +150,35 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
                     ) { Text("Allow live / Now Bar notifications") }
                 }
 
-                Text("Island position", style = MaterialTheme.typography.labelLarge)
+                Text("Island layout", style = MaterialTheme.typography.labelLarge)
                 Text(
-                    "Nudge the pill while a session runs. Default sits ~36dp from the top.",
+                    "Pick a style, then set position and size — each style keeps its own values.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { selectIslandStyle(TimerStore.IslandCompactStyle.BAR) },
+                        modifier = Modifier.weight(1f),
+                        enabled = islandStyle != TimerStore.IslandCompactStyle.BAR
+                    ) { Text("Bar") }
+                    OutlinedButton(
+                        onClick = { selectIslandStyle(TimerStore.IslandCompactStyle.RING) },
+                        modifier = Modifier.weight(1f),
+                        enabled = islandStyle != TimerStore.IslandCompactStyle.RING
+                    ) { Text("Ring") }
+                }
+                OutlinedButton(
+                    onClick = { selectIslandStyle(TimerStore.IslandCompactStyle.RING_ONLY) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = islandStyle != TimerStore.IslandCompactStyle.RING_ONLY
+                ) { Text("Ring only (no pill)") }
+
+                Text("Position (${islandStyle.name.lowercase()})", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    "Nudge while a session runs. Default sits ~36dp from the top.",
                     style = MaterialTheme.typography.bodySmall
                 )
                 IslandIntSlider("Horizontal", islandX, -80f..80f, "dp") {
@@ -134,7 +190,7 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
                     applyPosition()
                 }
 
-                Text("Island size", style = MaterialTheme.typography.labelLarge)
+                Text("Size (${islandStyle.name.lowercase()})", style = MaterialTheme.typography.labelLarge)
                 IslandIntSlider("Width", islandScaleW, 60f..160f, "%") {
                     islandScaleW = it
                     applyAppearance()
@@ -144,41 +200,8 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
                     applyAppearance()
                 }
 
-                Text("Compact progress style", style = MaterialTheme.typography.labelLarge)
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            islandStyle = TimerStore.IslandCompactStyle.BAR
-                            TimerStore.setIslandCompactStyle(context, islandStyle)
-                            IslandOverlay.applyAppearance(context)
-                        },
-                        modifier = Modifier.weight(1f),
-                        enabled = islandStyle != TimerStore.IslandCompactStyle.BAR
-                    ) { Text("Bar") }
-                    OutlinedButton(
-                        onClick = {
-                            islandStyle = TimerStore.IslandCompactStyle.RING
-                            TimerStore.setIslandCompactStyle(context, islandStyle)
-                            IslandOverlay.applyAppearance(context)
-                        },
-                        modifier = Modifier.weight(1f),
-                        enabled = islandStyle != TimerStore.IslandCompactStyle.RING
-                    ) { Text("Ring") }
-                }
-                OutlinedButton(
-                    onClick = {
-                        islandStyle = TimerStore.IslandCompactStyle.RING_ONLY
-                        TimerStore.setIslandCompactStyle(context, islandStyle)
-                        IslandOverlay.applyAppearance(context)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = islandStyle != TimerStore.IslandCompactStyle.RING_ONLY
-                ) { Text("Ring only (no pill)") }
                 if (islandStyle != TimerStore.IslandCompactStyle.BAR) {
-                    Text("Ring color", style = MaterialTheme.typography.labelLarge)
+                    Text("Ring color (${islandStyle.name.lowercase()})", style = MaterialTheme.typography.labelLarge)
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -199,7 +222,7 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
                                     .background(Color(argb))
                                     .clickable {
                                         ringColor = argb
-                                        TimerStore.setIslandRingColor(context, argb)
+                                        TimerStore.setIslandRingColor(context, islandStyle, argb)
                                         IslandOverlay.applyAppearance(context)
                                     }
                             )

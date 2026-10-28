@@ -155,17 +155,31 @@ object TimerStore {
     }
 
     /** Horizontal nudge of island from screen center (dp). */
-    fun cutoutOffsetXDp(context: Context) = prefs(context).getInt("cutout_offset_x_dp", 0)
+    fun cutoutOffsetXDp(context: Context) =
+        cutoutOffsetXDp(context, islandCompactStyle(context))
 
-    fun setCutoutOffsetXDp(context: Context, dp: Int) {
-        prefs(context).edit().putInt("cutout_offset_x_dp", dp.coerceIn(-80, 80)).apply()
+    fun cutoutOffsetXDp(context: Context, style: IslandCompactStyle): Int =
+        islandInt(context, style, "x", "cutout_offset_x_dp", 0).coerceIn(-80, 80)
+
+    fun setCutoutOffsetXDp(context: Context, dp: Int) =
+        setCutoutOffsetXDp(context, islandCompactStyle(context), dp)
+
+    fun setCutoutOffsetXDp(context: Context, style: IslandCompactStyle, dp: Int) {
+        prefs(context).edit().putInt(islandKey(style, "x"), dp.coerceIn(-80, 80)).apply()
     }
 
     /** Vertical nudge from default pill position (dp). Positive = down. */
-    fun cutoutOffsetYDp(context: Context) = prefs(context).getInt("cutout_offset_y_dp", 0)
+    fun cutoutOffsetYDp(context: Context) =
+        cutoutOffsetYDp(context, islandCompactStyle(context))
 
-    fun setCutoutOffsetYDp(context: Context, dp: Int) {
-        prefs(context).edit().putInt("cutout_offset_y_dp", dp.coerceIn(-80, 80)).apply()
+    fun cutoutOffsetYDp(context: Context, style: IslandCompactStyle): Int =
+        islandInt(context, style, "y", "cutout_offset_y_dp", 0).coerceIn(-80, 80)
+
+    fun setCutoutOffsetYDp(context: Context, dp: Int) =
+        setCutoutOffsetYDp(context, islandCompactStyle(context), dp)
+
+    fun setCutoutOffsetYDp(context: Context, style: IslandCompactStyle, dp: Int) {
+        prefs(context).edit().putInt(islandKey(style, "y"), dp.coerceIn(-80, 80)).apply()
     }
 
     enum class IslandCompactStyle { BAR, RING, RING_ONLY }
@@ -174,17 +188,55 @@ object TimerStore {
         prefs(context).getInt("island_scale_pct", 100).coerceIn(60, 160)
 
     fun islandScaleWidthPercent(context: Context) =
-        prefs(context).getInt("island_scale_w_pct", legacyIslandScale(context)).coerceIn(60, 160)
+        islandScaleWidthPercent(context, islandCompactStyle(context))
 
-    fun setIslandScaleWidthPercent(context: Context, pct: Int) {
-        prefs(context).edit().putInt("island_scale_w_pct", pct.coerceIn(60, 160)).apply()
+    fun islandScaleWidthPercent(context: Context, style: IslandCompactStyle): Int =
+        islandInt(context, style, "scale_w", "island_scale_w_pct", legacyIslandScale(context))
+            .coerceIn(60, 160)
+
+    fun setIslandScaleWidthPercent(context: Context, pct: Int) =
+        setIslandScaleWidthPercent(context, islandCompactStyle(context), pct)
+
+    fun setIslandScaleWidthPercent(context: Context, style: IslandCompactStyle, pct: Int) {
+        prefs(context).edit().putInt(islandKey(style, "scale_w"), pct.coerceIn(60, 160)).apply()
     }
 
     fun islandScaleHeightPercent(context: Context) =
-        prefs(context).getInt("island_scale_h_pct", legacyIslandScale(context)).coerceIn(60, 160)
+        islandScaleHeightPercent(context, islandCompactStyle(context))
 
-    fun setIslandScaleHeightPercent(context: Context, pct: Int) {
-        prefs(context).edit().putInt("island_scale_h_pct", pct.coerceIn(60, 160)).apply()
+    fun islandScaleHeightPercent(context: Context, style: IslandCompactStyle): Int =
+        islandInt(context, style, "scale_h", "island_scale_h_pct", legacyIslandScale(context))
+            .coerceIn(60, 160)
+
+    fun setIslandScaleHeightPercent(context: Context, pct: Int) =
+        setIslandScaleHeightPercent(context, islandCompactStyle(context), pct)
+
+    fun setIslandScaleHeightPercent(context: Context, style: IslandCompactStyle, pct: Int) {
+        prefs(context).edit().putInt(islandKey(style, "scale_h"), pct.coerceIn(60, 160)).apply()
+    }
+
+    private fun islandKey(style: IslandCompactStyle, field: String): String =
+        "island_${style.name.lowercase()}_$field"
+
+    private fun islandInt(
+        context: Context,
+        style: IslandCompactStyle,
+        field: String,
+        legacyKey: String,
+        default: Int,
+    ): Int {
+        val p = prefs(context)
+        val key = islandKey(style, field)
+        if (!p.contains(key)) {
+            val seed = when (field) {
+                "scale_w" -> p.getInt(legacyKey, legacyIslandScale(context))
+                "scale_h" -> p.getInt(legacyKey, legacyIslandScale(context))
+                else -> p.getInt(legacyKey, default)
+            }
+            p.edit().putInt(key, seed).apply()
+            return seed
+        }
+        return p.getInt(key, default)
     }
 
     fun islandCompactStyle(context: Context): IslandCompactStyle {
@@ -197,10 +249,16 @@ object TimerStore {
     }
 
     fun islandRingColor(context: Context): Int =
-        prefs(context).getInt("island_ring_color", 0xFFC56B4A.toInt())
+        islandRingColor(context, islandCompactStyle(context))
 
-    fun setIslandRingColor(context: Context, color: Int) {
-        prefs(context).edit().putInt("island_ring_color", color).apply()
+    fun islandRingColor(context: Context, style: IslandCompactStyle): Int =
+        islandInt(context, style, "ring_color", "island_ring_color", 0xFFC56B4A.toInt())
+
+    fun setIslandRingColor(context: Context, color: Int) =
+        setIslandRingColor(context, islandCompactStyle(context), color)
+
+    fun setIslandRingColor(context: Context, style: IslandCompactStyle, color: Int) {
+        prefs(context).edit().putInt(islandKey(style, "ring_color"), color).apply()
     }
 
     fun isSessionActive(context: Context): Boolean {
