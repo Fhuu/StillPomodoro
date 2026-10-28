@@ -66,6 +66,25 @@ class AmbientPlayer(private val context: Context) {
 
     fun release() = fadeOutStop()
 
+    /** Keeps playback position when the user pauses the pomodoro session. */
+    fun pauseForSessionHold() {
+        cancelCrossfade()
+        player?.pause()
+    }
+
+    fun resumeFromSessionHold(phase: Phase) {
+        val p = player
+        if (p != null) {
+            runCatching {
+                if (!p.isPlaying) p.start()
+            }.onFailure {
+                sync(phase)
+            }
+            return
+        }
+        sync(phase)
+    }
+
     private fun syncFocusAmbient() {
         when (TimerStore.ambientMode(context)) {
             AmbientMode.OFF -> fadeOutStop()

@@ -5,12 +5,15 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
+import android.media.session.MediaSession
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.support.v4.media.session.MediaSessionCompat
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
+import androidx.media.app.NotificationCompat.MediaStyle
 import java.time.Instant
 
 object SessionNotificationBuilder {
@@ -63,10 +66,15 @@ object SessionNotificationBuilder {
         openIntent: PendingIntent,
         pauseIntent: PendingIntent,
         stopIntent: PendingIntent,
+        mediaSessionToken: MediaSessionCompat.Token? = null,
     ): Notification = when {
-        Build.VERSION.SDK_INT >= 36 -> buildApi36(context, channelId, openIntent, pauseIntent, stopIntent)
-        isSamsung() -> buildSamsungStandard(context, channelId, openIntent, pauseIntent, stopIntent)
-        else -> buildStandard(context, channelId, openIntent, pauseIntent, stopIntent)
+        isSamsung() -> buildSamsungStandard(
+            context, channelId, openIntent, pauseIntent, stopIntent, mediaSessionToken,
+        )
+        Build.VERSION.SDK_INT >= 36 -> buildApi36(
+            context, channelId, openIntent, pauseIntent, stopIntent, mediaSessionToken,
+        )
+        else -> buildStandard(context, channelId, openIntent, pauseIntent, stopIntent, mediaSessionToken)
     }
 
     @RequiresApi(36)
@@ -76,6 +84,7 @@ object SessionNotificationBuilder {
         openIntent: PendingIntent,
         pauseIntent: PendingIntent,
         stopIntent: PendingIntent,
+        mediaSessionToken: MediaSessionCompat.Token?,
     ): Notification {
         val paused = TimerStore.isSessionPaused(context)
         val phaseLabel = if (paused) "Paused" else TimerStore.phaseLabel(context)
@@ -87,7 +96,7 @@ object SessionNotificationBuilder {
 
         val sessionIcon = NowBarArt.icon(context)
         val extras = Bundle().apply {
-            putAll(samsungNowBarExtras(context, sessionIcon))
+            putAll(samsungNowBarExtras(context, sessionIcon, pauseIntent, stopIntent))
             putBoolean("android.requestPromotedOngoing", true)
         }
 
@@ -100,20 +109,26 @@ object SessionNotificationBuilder {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setCategory(Notification.CATEGORY_PROGRESS)
-            .addAction(Notification.Action.Builder(null, pauseLabel, pauseIntent).build())
-            .addAction(Notification.Action.Builder(null, "Stop", stopIntent).build())
+            .setCategory(Notification.CATEGORY_TRANSPORT)
+            .addAction(
+                Notification.Action.Builder(pauseActionIcon(context, paused), pauseLabel, pauseIntent).build(),
+            )
+            .addAction(
+                Notification.Action.Builder(stopActionIcon(context), "Stop", stopIntent).build(),
+            )
             .setShortCriticalText(chip)
             .addExtras(extras)
 
-        if (Build.VERSION.SDK_INT >= 37 && applyMetricStyle(builder, context, paused, progressPct)) {
-            // MetricStyle is the timer Live Update template on Android 17 / One UI 9 Now Bar.
+        applyCountdownChronometer(builder, context, paused)
+        if (mediaSessionToken != null) {
+            applyMediaStyle(builder, mediaSessionToken)
+        } else if (Build.VERSION.SDK_INT >= 37 && applyMetricStyle(builder, context, paused, progressPct)) {
+            // Live Update timer template when no media session.
         } else {
-            applyCountdownChronometer(builder, context, paused)
             builder.setStyle(
                 Notification.ProgressStyle()
                     .setProgress(progressPct)
-                    .setProgressSegments(listOf(Notification.ProgressStyle.Segment(100)))
+                    .setProgressSegments(listOf(Notification.ProgressStyle.Segment(100))),
             )
         }
 
@@ -124,6 +139,15 @@ object SessionNotificationBuilder {
         }
 
         return builder.build()
+    }
+
+    private fun applyMediaStyle(builder: Notification.Builder, token: MediaSessionCompat.Token?) {
+        if (token == null) return
+        builder.setStyle(
+            Notification.MediaStyle()
+                .setMediaSession(token.token as MediaSession.Token)
+                .setShowActionsInCompactView(0, 1),
+        )
     }
 
     private fun applyMetricStyle(
@@ -161,38 +185,67 @@ object SessionNotificationBuilder {
         }
     }
 
-    /** Samsung Now Bar: standard ongoing + Samsung extras (pre-API 36). */
+    /** Samsung Now Bar + Live Notifications drawer (style=1 = both). */
     private fun buildSamsungStandard(
         context: Context,
         channelId: String,
         openIntent: PendingIntent,
         pauseIntent: PendingIntent,
         stopIntent: PendingIntent,
+        @Suppress("UNUSED_PARAMETER") mediaSessionToken: MediaSessionCompat.Token?,
     ): Notification {
         val paused = TimerStore.isSessionPaused(context)
         val phaseLabel = if (paused) "Paused" else TimerStore.phaseLabel(context)
         val minutes = TimerStore.formatRemainingMinutes(context)
         val title = "$phaseLabel · $minutes min"
         val pauseLabel = if (paused) "Resume" else "Pause"
+        val progressPct = (TimerStore.phaseProgress(context) * 100f).toInt().coerceIn(0, 100)
+        val chip = if (paused) "Pause" else "${minutes}m"
 
         val sessionIcon = NowBarArt.icon(context)
-        return NotificationCompat.Builder(context, channelId)
+        val extras = Bundle().apply {
+            putAll(samsungNowBarExtras(context, sessionIcon, pauseIntent, stopIntent))
+            if (Build.VERSION.SDK_INT >= 36) putBoolean("android.requestPromotedOngoing", true)
+        }
+
+        val builder = Notification.Builder(context, channelId)
             .setContentTitle(title)
             .setContentText(TimerStore.formatRemaining(context))
             .setSmallIcon(R.drawable.ic_stat_pomodoro)
             .setLargeIcon(sessionIcon)
             .setContentIntent(openIntent)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .addAction(0, pauseLabel, pauseIntent)
-            .addAction(0, "Stop", stopIntent)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setCategory(Notification.CATEGORY_PROGRESS)
+            .addAction(
+                Notification.Action.Builder(pauseActionIcon(context, paused), pauseLabel, pauseIntent).build(),
+            )
+            .addAction(
+                Notification.Action.Builder(stopActionIcon(context), "Stop", stopIntent).build(),
+            )
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setUsesChronometer(!paused)
-            .setWhen(countdownWhen(context, paused))
-            .setShowWhen(false)
-            .setExtras(samsungNowBarExtras(context, sessionIcon))
-            .build()
+            .addExtras(extras)
+
+        if (Build.VERSION.SDK_INT >= 36) {
+            builder.setShortCriticalText(chip)
+            applyCountdownChronometer(builder, context, paused)
+            builder.setStyle(
+                Notification.ProgressStyle()
+                    .setProgress(progressPct)
+                    .setProgressSegments(listOf(Notification.ProgressStyle.Segment(100))),
+            )
+            runCatching {
+                Notification.Builder::class.java
+                    .getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
+                    .invoke(builder, true)
+            }
+        } else {
+            builder.setWhen(countdownWhen(context, paused))
+            builder.setShowWhen(false)
+            builder.setUsesChronometer(!paused)
+        }
+
+        return builder.build()
     }
 
     private fun buildStandard(
@@ -201,39 +254,69 @@ object SessionNotificationBuilder {
         openIntent: PendingIntent,
         pauseIntent: PendingIntent,
         stopIntent: PendingIntent,
+        mediaSessionToken: MediaSessionCompat.Token?,
     ): Notification {
         val pauseLabel = if (TimerStore.isSessionPaused(context)) "Resume" else "Pause"
         val phaseLabel = if (TimerStore.isSessionPaused(context)) "Paused" else TimerStore.phaseLabel(context)
         val minutes = TimerStore.formatRemainingMinutes(context)
         val detail = "${TimerStore.formatRemaining(context)} · ${ambientLine(context)}"
+        val paused = TimerStore.isSessionPaused(context)
+        val pauseIcon = if (paused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause
+        val style = mediaStyle(mediaSessionToken)
         return NotificationCompat.Builder(context, channelId)
             .setContentTitle("$phaseLabel · $minutes min")
             .setContentText(detail)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
+            .setStyle(
+                style ?: NotificationCompat.BigTextStyle().bigText(detail),
+            )
             .setSmallIcon(R.drawable.ic_stat_pomodoro)
             .setContentIntent(openIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .addAction(0, pauseLabel, pauseIntent)
-            .addAction(0, "Stop", stopIntent)
+            .setCategory(
+                if (style != null) NotificationCompat.CATEGORY_TRANSPORT
+                else NotificationCompat.CATEGORY_PROGRESS,
+            )
+            .addAction(pauseIcon, pauseLabel, pauseIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()
     }
 
-    private fun samsungNowBarExtras(context: Context, icon: Icon): Bundle {
+    private fun mediaStyle(token: MediaSessionCompat.Token?): MediaStyle? =
+        token?.let {
+            MediaStyle().setMediaSession(it).setShowActionsInCompactView(0, 1)
+        }
+
+    private fun pauseActionIcon(context: Context, paused: Boolean): Icon =
+        Icon.createWithResource(
+            context,
+            if (paused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+        )
+
+    private fun stopActionIcon(context: Context): Icon =
+        Icon.createWithResource(context, android.R.drawable.ic_menu_close_clear_cancel)
+
+    private fun samsungNowBarExtras(
+        context: Context,
+        icon: Icon,
+        @Suppress("UNUSED_PARAMETER") pauseIntent: PendingIntent,
+        @Suppress("UNUSED_PARAMETER") stopIntent: PendingIntent,
+    ): Bundle {
         val paused = TimerStore.isSessionPaused(context)
         val minutes = TimerStore.formatRemainingMinutes(context)
         val phase = if (paused) "Paused" else TimerStore.phaseLabel(context)
         val clock = TimerStore.formatRemaining(context)
         val progressPct = (TimerStore.phaseProgress(context) * 100f).toInt().coerceIn(0, 100)
         return Bundle().apply {
-            putInt("android.ongoingActivityNoti.style", 2)
+            // 1 = Live Notifications drawer + Now Bar (2 = Now Bar only, hides shade actions).
+            putInt("android.ongoingActivityNoti.style", 1)
             putString("android.ongoingActivityNoti.primaryInfo", phase)
             putString("android.ongoingActivityNoti.secondaryInfo", "$minutes min · $clock")
             putString("android.ongoingActivityNoti.nowbarPrimaryInfo", clock)
             putString("android.ongoingActivityNoti.nowbarSecondaryInfo", phase)
             putInt("android.ongoingActivityNoti.actionType", 1)
+            putInt("android.ongoingActivityNoti.actionPrimarySet", 0)
             putInt("android.ongoingActivityNoti.progress", progressPct)
             putInt("android.ongoingActivityNoti.progressMax", 100)
             putParcelable("android.ongoingActivityNoti.nowbarIcon", icon)
