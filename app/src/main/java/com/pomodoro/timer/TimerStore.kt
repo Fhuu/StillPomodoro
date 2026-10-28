@@ -1,7 +1,6 @@
 package com.pomodoro.timer
 
 import android.content.Context
-import android.os.Build
 import kotlin.math.max
 
 enum class Phase { IDLE, FOCUS, BREAK }
@@ -196,16 +195,6 @@ object TimerStore {
     fun setIslandCompactStyle(context: Context, style: IslandCompactStyle) {
         prefs(context).edit().putString("island_compact_style", style.name).apply()
     }
-
-    fun liveNotificationSetupDone(context: Context): Boolean =
-        prefs(context).getBoolean("live_notification_setup_done", false)
-
-    fun setLiveNotificationSetupDone(context: Context) {
-        prefs(context).edit().putBoolean("live_notification_setup_done", true).apply()
-    }
-
-    fun needsLiveNotificationSetup(context: Context): Boolean =
-        Build.VERSION.SDK_INT >= 36 && !liveNotificationSetupDone(context)
 
     fun isSessionActive(context: Context): Boolean {
         if (isSessionPaused(context)) return pausedRemainingSeconds(context) > 0

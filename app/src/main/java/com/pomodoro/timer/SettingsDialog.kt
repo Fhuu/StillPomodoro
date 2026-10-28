@@ -87,9 +87,17 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
                     else "Grant missing permissions so the island and timer can run.",
                     style = MaterialTheme.typography.bodySmall
                 )
+                Text("Now Bar & lock screen", style = MaterialTheme.typography.labelLarge)
                 Text(
-                    "Now Bar: after the one-time live notification prompt, enable just pomodoro under " +
-                        "Lock screen → Now bar (Show always when locked).",
+                    "1) Start a session once and accept the live-notification prompt if shown.\n" +
+                        "2) Settings → Lock screen → Now bar → enable just pomodoro → Show always when locked.\n" +
+                        "3) Lock the phone — timer controls stay in the notification; Now bar is the strip at the bottom.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "Sideloaded or debug APK (not from Play Store): Samsung often hides third-party apps from " +
+                        "Now bar until you also turn on Developer options → Live notifications for all apps. " +
+                        "The app cannot enable that for you. A Play Store install usually only needs steps 1–2.",
                     style = MaterialTheme.typography.bodySmall
                 )
                 OutlinedButton(
@@ -102,11 +110,6 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Allow live / Now Bar notifications") }
                 }
-                Text(
-                    "If you installed a debug build and Now bar never lists this app, Samsung may require " +
-                        "Developer options → Live notifications for all apps. Release installs from Play usually do not.",
-                    style = MaterialTheme.typography.bodySmall
-                )
 
                 Text("Island position", style = MaterialTheme.typography.labelLarge)
                 Text(

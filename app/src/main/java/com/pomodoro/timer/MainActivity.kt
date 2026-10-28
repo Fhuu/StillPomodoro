@@ -69,7 +69,6 @@ fun PomodoroApp() {
     val context = LocalContext.current
     var tick by remember { mutableIntStateOf(0) }
     var settingsOpen by remember { mutableStateOf(false) }
-    var liveSetupOpen by remember { mutableStateOf(false) }
     var permTick by remember { mutableIntStateOf(0) }
     var ambientLabel by remember { mutableStateOf(TimerStore.ambientLabel(context)) }
     var sessionMin by remember { mutableIntStateOf(TimerStore.focusMinutes(context)) }
@@ -163,11 +162,7 @@ fun PomodoroApp() {
                         if (!AppPermissions.overlayGranted(context)) {
                             settingsOpen = true
                         }
-                        if (TimerStore.needsLiveNotificationSetup(context)) {
-                            liveSetupOpen = true
-                        } else {
-                            PomodoroService.startFocus(context)
-                        }
+                        PomodoroService.startFocus(context)
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -236,14 +231,6 @@ fun PomodoroApp() {
             open = settingsOpen,
             onDismiss = { settingsOpen = false },
             onChanged = { permTick++ }
-        )
-        LiveSetupDialog(
-            open = liveSetupOpen,
-            onDismiss = { liveSetupOpen = false },
-            onStartSession = {
-                liveSetupOpen = false
-                PomodoroService.startFocus(context)
-            },
         )
     }
 }

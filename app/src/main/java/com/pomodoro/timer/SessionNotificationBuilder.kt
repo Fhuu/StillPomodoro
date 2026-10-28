@@ -85,8 +85,9 @@ object SessionNotificationBuilder {
         val pauseLabel = if (paused) "Resume" else "Pause"
         val chip = if (paused) "Pause" else "${minutes}m"
 
+        val sessionIcon = NowBarArt.icon(context)
         val extras = Bundle().apply {
-            putAll(samsungNowBarExtras(context))
+            putAll(samsungNowBarExtras(context, sessionIcon))
             putBoolean("android.requestPromotedOngoing", true)
         }
 
@@ -94,6 +95,7 @@ object SessionNotificationBuilder {
             .setContentTitle(title)
             .setContentText(TimerStore.formatRemaining(context))
             .setSmallIcon(R.drawable.ic_stat_pomodoro)
+            .setLargeIcon(sessionIcon)
             .setContentIntent(openIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -173,10 +175,12 @@ object SessionNotificationBuilder {
         val title = "$phaseLabel · $minutes min"
         val pauseLabel = if (paused) "Resume" else "Pause"
 
+        val sessionIcon = NowBarArt.icon(context)
         return NotificationCompat.Builder(context, channelId)
             .setContentTitle(title)
             .setContentText(TimerStore.formatRemaining(context))
             .setSmallIcon(R.drawable.ic_stat_pomodoro)
+            .setLargeIcon(sessionIcon)
             .setContentIntent(openIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
@@ -187,7 +191,7 @@ object SessionNotificationBuilder {
             .setUsesChronometer(!paused)
             .setWhen(countdownWhen(context, paused))
             .setShowWhen(false)
-            .setExtras(samsungNowBarExtras(context))
+            .setExtras(samsungNowBarExtras(context, sessionIcon))
             .build()
     }
 
@@ -217,7 +221,7 @@ object SessionNotificationBuilder {
             .build()
     }
 
-    private fun samsungNowBarExtras(context: Context): Bundle {
+    private fun samsungNowBarExtras(context: Context, icon: Icon): Bundle {
         val paused = TimerStore.isSessionPaused(context)
         val minutes = TimerStore.formatRemainingMinutes(context)
         val phase = if (paused) "Paused" else TimerStore.phaseLabel(context)
@@ -232,10 +236,9 @@ object SessionNotificationBuilder {
             putInt("android.ongoingActivityNoti.actionType", 1)
             putInt("android.ongoingActivityNoti.progress", progressPct)
             putInt("android.ongoingActivityNoti.progressMax", 100)
-            putParcelable(
-                "android.ongoingActivityNoti.nowbarIcon",
-                Icon.createWithResource(context, R.drawable.ic_stat_pomodoro),
-            )
+            putParcelable("android.ongoingActivityNoti.nowbarIcon", icon)
+            putParcelable("android.ongoingActivityNoti.chipIcon", icon)
+            putParcelable("android.ongoingActivityNoti.firstIcon", icon)
         }
     }
 

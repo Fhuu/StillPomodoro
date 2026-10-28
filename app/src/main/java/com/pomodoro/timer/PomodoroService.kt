@@ -31,6 +31,10 @@ class PomodoroService : Service() {
             ACTION_START_FOCUS -> startPhase(Phase.FOCUS, TimerStore.focusMinutes(this))
             ACTION_START_BREAK -> startPhase(Phase.BREAK, TimerStore.breakMinutes(this))
             ACTION_HOLD_PAUSE -> holdPause()
+            ACTION_REFRESH_NOTIFICATION -> {
+                if (TimerStore.isSessionActive(this)) updateNotification()
+                return START_STICKY
+            }
             ACTION_STOP -> {
                 stopAll()
                 return START_NOT_STICKY
@@ -44,6 +48,7 @@ class PomodoroService : Service() {
         TimerStore.setPhase(this, phase)
         TimerStore.setEndAtMillis(this, System.currentTimeMillis() + minutes * 60_000L)
         ambient.sync(phase)
+        AmbientArt.loadAmbientSelection(this) { updateNotification() }
         val notification = buildNotification()
         startForeground(NOTIFICATION_ID, notification)
         SessionNotificationBuilder.logPromotionState(this, notification)
@@ -180,6 +185,7 @@ class PomodoroService : Service() {
         const val ACTION_START_FOCUS = "start_focus"
         const val ACTION_START_BREAK = "start_break"
         const val ACTION_HOLD_PAUSE = "hold_pause"
+        const val ACTION_REFRESH_NOTIFICATION = "refresh_notification"
         const val ACTION_STOP = "stop"
         private const val CHANNEL_ID = "pomodoro_session_v2"
         private const val NOTIFICATION_ID = 1
@@ -199,6 +205,13 @@ class PomodoroService : Service() {
         fun stop(context: Context) = context.startService(
             Intent(context, PomodoroService::class.java).setAction(ACTION_STOP)
         )
+
+        fun refreshNotification(context: Context) {
+            if (!TimerStore.isSessionActive(context)) return
+            context.startService(
+                Intent(context, PomodoroService::class.java).setAction(ACTION_REFRESH_NOTIFICATION)
+            )
+        }
 
         /** Ends the session completely. */
         fun pause(context: Context) = stop(context)

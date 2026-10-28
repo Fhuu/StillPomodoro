@@ -130,7 +130,10 @@ class AmbientPlayer(private val context: Context) {
 
     private fun onPlaybackStarted(uri: Uri) {
         TimerStore.setNowPlayingUri(appContext, uri.toString())
-        AmbientArt.load(appContext, uri) { IslandOverlay.reloadArt(appContext) }
+        AmbientArt.load(appContext, uri) {
+            IslandOverlay.reloadArt(appContext)
+            PomodoroService.refreshNotification(appContext)
+        }
         ignoreRouteChangesUntil = System.currentTimeMillis() + 1200L
         wasPrivateOutput = hasPrivateOutput()
         startMonitoring()
