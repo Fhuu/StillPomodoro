@@ -23,6 +23,8 @@ class AmbientPlayer(private val context: Context) {
     private val audioManager = appContext.getSystemService(AudioManager::class.java)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var player: MediaPlayer? = null
+    private var crossfadeOut: MediaPlayer? = null
+    private var folderFiles: List<Uri>? = null
     private var wasPrivateOutput = false
     private var monitoring = false
     private var ignoreRouteChangesUntil = 0L
@@ -55,84 +57,149 @@ class AmbientPlayer(private val context: Context) {
     }
 
     fun sync(phase: Phase) {
-        if (phase != Phase.FOCUS) {
-            stop()
+        when (phase) {
+            Phase.IDLE -> fadeOutStop()
+            Phase.BREAK -> crossfadeTo(breakOceanUri(), loop = true, loadArt = false)
+            Phase.FOCUS -> syncFocusAmbient()
+        }
+    }
+
+    fun release() = fadeOutStop()
+
+    private fun syncFocusAmbient() {
+        when (TimerStore.ambientMode(context)) {
+            AmbientMode.OFF -> fadeOutStop()
+            AmbientMode.FILE -> crossfadeTo(Uri.parse(TimerStore.ambientUri(context)), loop = true, loadArt = true)
+            AmbientMode.FOLDER -> {
+                val tree = Uri.parse(TimerStore.ambientUri(context))
+                val files = audioFilesIn(tree)
+                if (files.isEmpty()) fadeOutStop()
+                else crossfadeTo(files[Random.nextInt(files.size)], loop = false, loadArt = true, folderPlaylist = files)
+            }
+        }
+    }
+
+    private fun breakOceanUri(): Uri =
+        Uri.parse("android.resource://${appContext.packageName}/${R.raw.break_ocean_waves}")
+
+    private fun crossfadeTo(
+        uri: Uri?,
+        loop: Boolean,
+        loadArt: Boolean,
+        folderPlaylist: List<Uri>? = null,
+    ) {
+        if (uri == null) {
+            fadeOutStop()
             return
         }
-        when (TimerStore.ambientMode(context)) {
-            AmbientMode.OFF -> stop()
-            AmbientMode.FILE -> playUri(Uri.parse(TimerStore.ambientUri(context)))
-            AmbientMode.FOLDER -> playFromFolder(Uri.parse(TimerStore.ambientUri(context)))
+        cancelCrossfade()
+        requestFocus()
+        val incoming = try {
+            MediaPlayer().apply {
+                setAudioAttributes(attrs)
+                setDataSource(appContext, uri)
+                isLooping = loop
+                if (folderPlaylist != null) {
+                    setOnCompletionListener { playNextFromFolder(folderPlaylist) }
+                }
+                prepare()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Ambient prepare failed", e)
+            fadeOutStop()
+            return
         }
+
+        folderFiles = folderPlaylist
+        val outgoing = player
+        if (outgoing == null || !outgoing.isPlaying) {
+            outgoing?.release()
+            incoming.setVolume(1f, 1f)
+            incoming.start()
+            player = incoming
+            onPlaybackStarted(uri, loadArt)
+            return
+        }
+
+        incoming.setVolume(0f, 0f)
+        incoming.start()
+        player = incoming
+        crossfadeOut = outgoing
+        var step = 0
+        val stepMs = CROSSFADE_MS / FADE_STEPS
+        val tick = object : Runnable {
+            override fun run() {
+                step++
+                val t = (step.toFloat() / FADE_STEPS).coerceIn(0f, 1f)
+                outgoing.setVolume(1f - t, 1f - t)
+                incoming.setVolume(t, t)
+                if (step >= FADE_STEPS) {
+                    outgoing.release()
+                    crossfadeOut = null
+                    onPlaybackStarted(uri, loadArt)
+                } else {
+                    mainHandler.postDelayed(this, stepMs)
+                }
+            }
+        }
+        mainHandler.post(tick)
     }
 
-    fun release() {
-        stop()
+    private fun fadeOutStop() {
+        cancelCrossfade()
+        val outgoing = player ?: return stopSilent()
+        player = null
+        var step = 0
+        val stepMs = CROSSFADE_MS / FADE_STEPS
+        val tick = object : Runnable {
+            override fun run() {
+                step++
+                val t = 1f - (step.toFloat() / FADE_STEPS).coerceIn(0f, 1f)
+                if (outgoing.isPlaying) outgoing.setVolume(t, t)
+                if (step >= FADE_STEPS) {
+                    outgoing.release()
+                    stopSilent()
+                } else {
+                    mainHandler.postDelayed(this, stepMs)
+                }
+            }
+        }
+        mainHandler.post(tick)
     }
 
-    private fun stop() {
+    private fun stopSilent() {
         stopMonitoring()
         abandonFocus()
+        crossfadeOut?.release()
+        crossfadeOut = null
         player?.release()
         player = null
+        folderFiles = null
         wasPrivateOutput = false
         TimerStore.setNowPlayingUri(appContext, null)
         AmbientArt.clear()
     }
 
-    private fun playUri(uri: Uri?) {
-        if (uri == null) return
-        stop()
-        try {
-            requestFocus()
-            player = MediaPlayer().apply {
-                setAudioAttributes(attrs)
-                setDataSource(appContext, uri)
-                isLooping = true
-                setVolume(1f, 1f)
-                prepare()
-                start()
-            }
-            onPlaybackStarted(uri)
-        } catch (e: Exception) {
-            Log.e(TAG, "Ambient play failed", e)
-            stop()
-        }
-    }
-
-    private fun playFromFolder(treeUri: Uri?) {
-        if (treeUri == null) return
-        val files = audioFilesIn(treeUri)
-        if (files.isEmpty()) return
-        playNextFromFolder(files)
+    private fun cancelCrossfade() {
+        mainHandler.removeCallbacksAndMessages(null)
+        crossfadeOut?.release()
+        crossfadeOut = null
     }
 
     private fun playNextFromFolder(files: List<Uri>) {
-        stop()
-        val uri = files[Random.nextInt(files.size)]
-        try {
-            requestFocus()
-            player = MediaPlayer().apply {
-                setAudioAttributes(attrs)
-                setDataSource(appContext, uri)
-                isLooping = false
-                setVolume(1f, 1f)
-                setOnCompletionListener { playNextFromFolder(files) }
-                prepare()
-                start()
-            }
-            onPlaybackStarted(uri)
-        } catch (e: Exception) {
-            Log.e(TAG, "Ambient play failed", e)
-            stop()
-        }
+        crossfadeTo(files[Random.nextInt(files.size)], loop = false, loadArt = true, folderPlaylist = files)
     }
 
-    private fun onPlaybackStarted(uri: Uri) {
-        TimerStore.setNowPlayingUri(appContext, uri.toString())
-        AmbientArt.load(appContext, uri) {
-            IslandOverlay.reloadArt(appContext)
-            PomodoroService.refreshNotification(appContext)
+    private fun onPlaybackStarted(uri: Uri, loadArt: Boolean) {
+        if (loadArt) {
+            TimerStore.setNowPlayingUri(appContext, uri.toString())
+            AmbientArt.load(appContext, uri) {
+                IslandOverlay.reloadArt(appContext)
+                PomodoroService.refreshNotification(appContext)
+            }
+        } else {
+            TimerStore.setNowPlayingUri(appContext, null)
+            AmbientArt.clear()
         }
         ignoreRouteChangesUntil = System.currentTimeMillis() + 1200L
         wasPrivateOutput = hasPrivateOutput()
@@ -154,7 +221,7 @@ class AmbientPlayer(private val context: Context) {
 
     private fun silenceForPublicOutput() {
         if (player?.isPlaying != true) return
-        stop()
+        fadeOutStop()
     }
 
     private fun hasPrivateOutput(): Boolean {
@@ -163,6 +230,7 @@ class AmbientPlayer(private val context: Context) {
     }
 
     private fun requestFocus() {
+        if (focusRequest != null) return
         val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(attrs)
             .setOnAudioFocusChangeListener { }
@@ -213,5 +281,7 @@ class AmbientPlayer(private val context: Context) {
 
     companion object {
         private const val TAG = "AmbientPlayer"
+        private const val CROSSFADE_MS = 2_500L
+        private const val FADE_STEPS = 25
     }
 }

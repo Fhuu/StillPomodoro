@@ -48,7 +48,9 @@ class PomodoroService : Service() {
         TimerStore.setPhase(this, phase)
         TimerStore.setEndAtMillis(this, System.currentTimeMillis() + minutes * 60_000L)
         ambient.sync(phase)
-        AmbientArt.loadAmbientSelection(this) { updateNotification() }
+        if (phase == Phase.FOCUS) {
+            AmbientArt.loadAmbientSelection(this) { updateNotification() }
+        }
         val notification = buildNotification()
         startForeground(NOTIFICATION_ID, notification)
         SessionNotificationBuilder.logPromotionState(this, notification)
