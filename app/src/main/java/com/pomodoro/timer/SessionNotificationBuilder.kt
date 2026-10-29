@@ -385,8 +385,8 @@ object SessionNotificationBuilder {
         val label = TimerStore.ambientLabel(context)
         return when (TimerStore.ambientMode(context)) {
             AmbientMode.OFF -> "No ambient sound"
-            AmbientMode.FILE -> label ?: "Ambient track"
-            AmbientMode.FOLDER -> label ?: "Ambient folder"
+            AmbientMode.LIBRARY -> label ?: "Music library"
+            AmbientMode.YOUTUBE -> label ?: "YouTube"
         }
     }
 

@@ -41,12 +41,26 @@ object AmbientArt {
 
     fun loadAmbientSelection(context: Context, onLoaded: ((Bitmap?) -> Unit)? = null) {
         when (TimerStore.ambientMode(context)) {
-            AmbientMode.FILE -> TimerStore.ambientUri(context)?.let { load(context, Uri.parse(it), onLoaded) }
-                ?: run { clear(); onLoaded?.invoke(null) }
-            AmbientMode.FOLDER -> {
-                val playing = TimerStore.nowPlayingUri(context)
-                if (playing != null) load(context, Uri.parse(playing), onLoaded)
+            AmbientMode.LIBRARY -> {
+                val uri = TimerStore.selectedTrackUri(context)
+                    ?: TimerStore.nowPlayingUri(context)
+                if (uri != null) load(context, Uri.parse(uri), onLoaded)
                 else {
+                    clear()
+                    onLoaded?.invoke(null)
+                }
+            }
+            AmbientMode.YOUTUBE -> {
+                val id = TimerStore.youtubeVideoId(context)
+                if (id != null) {
+                    YoutubePlaylist.thumbBitmap(context, id)?.let { bitmap ->
+                        cachedBitmap = bitmap
+                        cachedUri = "yt:$id"
+                        onLoaded?.invoke(bitmap)
+                        return
+                    }
+                    loadYoutubeThumbnail(context, id, onLoaded)
+                } else {
                     clear()
                     onLoaded?.invoke(null)
                 }
@@ -54,6 +68,27 @@ object AmbientArt {
             AmbientMode.OFF -> {
                 clear()
                 onLoaded?.invoke(null)
+            }
+        }
+    }
+
+    fun loadYoutubeThumbnail(context: Context, videoId: String, onLoaded: ((Bitmap?) -> Unit)? = null) {
+        val key = "yt:$videoId"
+        if (key == cachedUri && cachedBitmap != null) {
+            onLoaded?.invoke(cachedBitmap)
+            return
+        }
+        val app = context.applicationContext
+        executor.execute {
+            val bitmap = runCatching {
+                java.net.URL(YouTubeLinks.thumbnailUrl(videoId)).openStream().use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                }
+            }.getOrNull()
+            main.post {
+                cachedBitmap = bitmap
+                cachedUri = if (bitmap != null) key else null
+                onLoaded?.invoke(cachedBitmap)
             }
         }
     }

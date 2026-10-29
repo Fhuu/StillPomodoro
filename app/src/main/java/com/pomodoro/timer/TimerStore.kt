@@ -6,7 +6,7 @@ import kotlin.math.roundToInt
 
 enum class Phase { IDLE, FOCUS, BREAK }
 
-enum class AmbientMode { OFF, FILE, FOLDER }
+enum class AmbientMode { OFF, LIBRARY, YOUTUBE }
 
 data class SessionControlFingerprint(val phase: Phase, val paused: Boolean, val endAtMillis: Long)
 
@@ -131,14 +131,31 @@ object TimerStore {
         prefs(context).edit().putInt("ui_refresh_minute_step", if (minutes == 1) 1 else 5).apply()
     }
 
-    fun ambientMode(context: Context): AmbientMode =
-        AmbientMode.valueOf(prefs(context).getString("ambient_mode", AmbientMode.OFF.name)!!)
+    fun ambientMode(context: Context): AmbientMode {
+        val raw = prefs(context).getString("ambient_mode", AmbientMode.OFF.name)!!
+        return when (raw) {
+            "FILE", "FOLDER" -> AmbientMode.LIBRARY
+            else -> runCatching { AmbientMode.valueOf(raw) }.getOrDefault(AmbientMode.OFF)
+        }
+    }
 
-    fun ambientUri(context: Context): String? =
-        prefs(context).getString("ambient_uri", null)?.takeIf { it.isNotBlank() }
+    fun libraryUri(context: Context): String? =
+        prefs(context).getString("music_library_uri", null)?.takeIf { it.isNotBlank() }
+            ?: prefs(context).getString("ambient_uri", null)?.takeIf { it.isNotBlank() }
 
-    fun ambientLabel(context: Context): String? =
-        prefs(context).getString("ambient_label", null)
+    fun selectedTrackUri(context: Context): String? =
+        prefs(context).getString("selected_track_uri", null)?.takeIf { it.isNotBlank() }
+
+    fun youtubeVideoId(context: Context): String? =
+        prefs(context).getString("youtube_video_id", null)?.takeIf { it.isNotBlank() }
+
+    fun ambientLabel(context: Context): String? = when (ambientMode(context)) {
+        AmbientMode.YOUTUBE -> prefs(context).getString("youtube_title", null)
+            ?: prefs(context).getString("ambient_label", null)
+        AmbientMode.LIBRARY -> prefs(context).getString("selected_track_label", null)
+            ?: prefs(context).getString("ambient_label", null)
+        AmbientMode.OFF -> null
+    }
 
     fun nowPlayingUri(context: Context): String? =
         prefs(context).getString("now_playing_uri", null)
@@ -149,27 +166,54 @@ object TimerStore {
         }.apply()
     }
 
-    fun setAmbientFile(context: Context, uri: String, label: String) {
+    fun setMusicLibrary(context: Context, treeUri: String, label: String) {
         prefs(context).edit()
-            .putString("ambient_mode", AmbientMode.FILE.name)
-            .putString("ambient_uri", uri)
+            .putString("ambient_mode", AmbientMode.LIBRARY.name)
+            .putString("music_library_uri", treeUri)
             .putString("ambient_label", label)
             .apply()
     }
 
-    fun setAmbientFolder(context: Context, treeUri: String, label: String) {
+    fun setSelectedTrack(context: Context, uri: String, title: String) {
         prefs(context).edit()
-            .putString("ambient_mode", AmbientMode.FOLDER.name)
-            .putString("ambient_uri", treeUri)
-            .putString("ambient_label", label)
+            .putString("ambient_mode", AmbientMode.LIBRARY.name)
+            .putString("selected_track_uri", uri)
+            .putString("selected_track_label", title)
             .apply()
+    }
+
+    fun setYoutubeSource(context: Context, videoId: String, title: String) {
+        prefs(context).edit()
+            .putString("ambient_mode", AmbientMode.YOUTUBE.name)
+            .putString("youtube_video_id", videoId)
+            .putString("youtube_title", title)
+            .putString("ambient_label", title)
+            .apply()
+    }
+
+    fun clearYoutubeSelection(context: Context) {
+        prefs(context).edit()
+            .remove("youtube_video_id")
+            .remove("youtube_title")
+            .apply()
+        if (ambientMode(context) == AmbientMode.YOUTUBE) {
+            prefs(context).edit()
+                .putString("ambient_mode", AmbientMode.OFF.name)
+                .remove("ambient_label")
+                .apply()
+        }
     }
 
     fun clearAmbient(context: Context) {
         prefs(context).edit()
             .putString("ambient_mode", AmbientMode.OFF.name)
+            .remove("music_library_uri")
             .remove("ambient_uri")
             .remove("ambient_label")
+            .remove("selected_track_uri")
+            .remove("selected_track_label")
+            .remove("youtube_video_id")
+            .remove("youtube_title")
             .apply()
     }
 
