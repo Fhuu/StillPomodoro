@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -68,6 +69,9 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
     var ringColor by remember(open) {
         val s = TimerStore.islandCompactStyle(context)
         mutableIntStateOf(TimerStore.islandRingColor(context, s))
+    }
+    var minuteRefresh by remember(open) {
+        mutableIntStateOf(TimerStore.uiRefreshMinuteStep(context))
     }
 
     fun loadIslandForStyle(style: TimerStore.IslandCompactStyle) {
@@ -148,6 +152,29 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
                         onClick = { SessionNotificationBuilder.openPromotionSettings(context) },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Allow live / Now Bar notifications") }
+                }
+
+                Text("Timer updates", style = MaterialTheme.typography.labelLarge)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = minuteRefresh == 1,
+                        onClick = {
+                            minuteRefresh = 1
+                            TimerStore.setUiRefreshMinuteStep(context, 1)
+                        },
+                        label = { Text("Every 1 min") },
+                    )
+                    FilterChip(
+                        selected = minuteRefresh == 5,
+                        onClick = {
+                            minuteRefresh = 5
+                            TimerStore.setUiRefreshMinuteStep(context, 5)
+                        },
+                        label = { Text("Every 5 min") },
+                    )
                 }
 
                 Text("Island layout", style = MaterialTheme.typography.labelLarge)

@@ -6,6 +6,7 @@ import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
@@ -29,7 +30,11 @@ class PomodoroWidget : GlanceAppWidget() {
         private val scope = CoroutineScope(Dispatchers.Main)
 
         fun updateAll(context: Context) {
-            scope.launch { PomodoroWidget().updateAll(context) }
+            scope.launch {
+                val manager = GlanceAppWidgetManager(context)
+                if (manager.getGlanceIds(PomodoroWidget::class.java).isEmpty()) return@launch
+                PomodoroWidget().updateAll(context)
+            }
         }
     }
 }
@@ -50,8 +55,8 @@ private fun WidgetContent(context: Context) {
             style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium)
         )
         Text(
-            text = TimerStore.formatRemaining(context),
-            style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            text = TimerStore.minutesLeftPhrase(context),
+            style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold)
         )
     }
 }

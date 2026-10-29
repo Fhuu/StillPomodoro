@@ -12,17 +12,14 @@ import android.os.IBinder
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import com.pomodoro.timer.widget.PomodoroWidget
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 class PomodoroService : Service() {
-    private val scope = CoroutineScope(Dispatchers.Main)
-    private var tickJob: Job? = null
     private lateinit var ambient: AmbientPlayer
     private var mediaSession: MediaSessionCompat? = null
+    private var foregroundStarted = false
+    private val notificationManager by lazy {
+        getSystemService(NotificationManager::class.java)
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -54,15 +51,18 @@ class PomodoroService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
-        if (action == ACTION_HOLD_PAUSE || action == ACTION_STOP || action == ACTION_REFRESH_NOTIFICATION) {
-            if (TimerStore.isSessionActive(this)) {
-                startForeground(NOTIFICATION_ID, buildNotification())
+        if (action == ACTION_HOLD_PAUSE || action == ACTION_STOP || action == ACTION_REFRESH_NOTIFICATION ||
+            action == ACTION_SESSION_ALARM
+        ) {
+            if (TimerStore.isSessionActive(this) || action == ACTION_SESSION_ALARM) {
+                postSessionNotification(buildNotification())
             }
         }
         when (action) {
-            ACTION_START_FOCUS -> startPhase(Phase.FOCUS, TimerStore.focusMinutes(this))
-            ACTION_START_BREAK -> startPhase(Phase.BREAK, TimerStore.breakMinutes(this))
+            ACTION_START_FOCUS -> startPhase(Phase.FOCUS, TimerStore.focusDurationSeconds(this))
+            ACTION_START_BREAK -> startPhase(Phase.BREAK, TimerStore.breakMinutes(this) * 60)
             ACTION_HOLD_PAUSE -> if (TimerStore.isSessionActive(this)) holdPause()
+            ACTION_SESSION_ALARM -> onSessionAlarm()
             ACTION_REFRESH_NOTIFICATION -> {
                 if (TimerStore.isSessionActive(this)) updateNotification()
                 return START_STICKY
@@ -75,10 +75,11 @@ class PomodoroService : Service() {
         return START_STICKY
     }
 
-    private fun startPhase(phase: Phase, minutes: Int) {
+    private fun startPhase(phase: Phase, durationSeconds: Int) {
         TimerStore.clearSessionPaused(this)
         TimerStore.setPhase(this, phase)
-        TimerStore.setEndAtMillis(this, System.currentTimeMillis() + minutes * 60_000L)
+        TimerStore.setRunningPhaseTotalSeconds(this, durationSeconds)
+        TimerStore.setEndAtMillis(this, System.currentTimeMillis() + durationSeconds * 1000L)
         mediaSession?.isActive = true
         ambient.sync(phase)
         if (phase == Phase.FOCUS) {
@@ -86,11 +87,10 @@ class PomodoroService : Service() {
         }
         val notification = buildNotification()
         syncMediaSession()
-        startForeground(NOTIFICATION_ID, notification)
+        postSessionNotification(notification)
         SessionNotificationBuilder.logPromotionState(this, notification)
-        startTicking()
+        beginSessionScheduling()
         IslandOverlay.ensureVisible(this)
-        PomodoroWidget.updateAll(this)
     }
 
     private fun holdPause() {
@@ -98,7 +98,7 @@ class PomodoroService : Service() {
             resumeSession()
             return
         }
-        tickJob?.cancel()
+        SessionAlarms.cancel(this)
         TimerStore.setSessionPaused(
             this,
             paused = true,
@@ -106,6 +106,7 @@ class PomodoroService : Service() {
             remainingSec = TimerStore.remainingSeconds(this)
         )
         ambient.pauseForSessionHold()
+        syncMediaSession()
         updateNotification()
         IslandOverlay.refresh(this)
         PomodoroWidget.updateAll(this)
@@ -122,47 +123,80 @@ class PomodoroService : Service() {
         TimerStore.setPhase(this, phase)
         TimerStore.setEndAtMillis(this, System.currentTimeMillis() + remaining * 1000L)
         ambient.resumeFromSessionHold(phase)
-        startTicking()
+        beginSessionScheduling()
+        syncMediaSession()
         updateNotification()
         IslandOverlay.refresh(this)
         PomodoroWidget.updateAll(this)
     }
 
-    private fun stopAll() {
-        tickJob?.cancel()
+    private fun stopAll(@Suppress("UNUSED_PARAMETER") immediateAudio: Boolean = false) {
+        SessionAlarms.cancel(this)
         TimerStore.clearSessionPaused(this)
         TimerStore.setPhase(this, Phase.IDLE)
         TimerStore.setEndAtMillis(this, 0L)
-        ambient.release()
+        TimerStore.clearRunningPhaseTotalSeconds(this)
+        ambient.stopImmediate()
         IslandOverlay.hide()
         mediaSession?.isActive = false
+        foregroundStarted = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         PomodoroWidget.updateAll(this)
+        stopSelf()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        stopAll(immediateAudio = true)
+        super.onTaskRemoved(rootIntent)
     }
 
     private fun pause() = stopAll()
 
-    private fun startTicking() {
-        tickJob?.cancel()
-        tickJob = scope.launch {
-            while (true) {
-                val remaining = TimerStore.remainingSeconds(this@PomodoroService)
-                if (remaining <= 0) {
-                    onPhaseFinished()
-                    break
-                }
-                updateNotification()
-                IslandOverlay.ensureVisible(this@PomodoroService)
-                IslandOverlay.refresh(this@PomodoroService)
-                PomodoroWidget.updateAll(this@PomodoroService)
-                delay(1000)
-            }
+    private fun beginSessionScheduling() {
+        ProgressRefresh.reset()
+        ProgressRefresh.planRefresh(this)
+        refreshSessionUi()
+        SessionAlarms.scheduleNext(this)
+    }
+
+    private fun onSessionAlarm() {
+        if (TimerStore.isSessionPaused(this)) {
+            SessionAlarms.cancel(this)
+            return
         }
+        if (TimerStore.remainingSeconds(this) <= 0) {
+            SessionAlarms.cancel(this)
+            if (TimerStore.phase(this) != Phase.IDLE) {
+                onPhaseFinished()
+            }
+            return
+        }
+        if (!TimerStore.isSessionActive(this)) {
+            SessionAlarms.cancel(this)
+            return
+        }
+        val plan = ProgressRefresh.planRefresh(this)
+        if (plan.notification) {
+            updateNotification()
+        }
+        if (plan.islandOrWidget) {
+            IslandOverlay.ensureVisible(this)
+            IslandOverlay.refresh(this)
+            PomodoroWidget.updateAll(this)
+        }
+        SessionAlarms.scheduleNext(this)
+    }
+
+    private fun refreshSessionUi() {
+        updateNotification()
+        IslandOverlay.ensureVisible(this)
+        IslandOverlay.refresh(this)
+        PomodoroWidget.updateAll(this)
     }
 
     private fun onPhaseFinished() {
         when (TimerStore.phase(this)) {
-            Phase.FOCUS -> startPhase(Phase.BREAK, TimerStore.breakMinutes(this))
+            Phase.FOCUS -> startPhase(Phase.BREAK, TimerStore.breakMinutes(this) * 60)
             Phase.BREAK, Phase.IDLE -> pause()
         }
     }
@@ -194,9 +228,17 @@ class PomodoroService : Service() {
 
     private fun updateNotification() {
         if (!TimerStore.isSessionActive(this)) return
-        val notification = buildNotification()
-        syncMediaSession()
-        startForeground(NOTIFICATION_ID, notification)
+        postSessionNotification(buildNotification())
+    }
+
+    /** First post must use startForeground; later updates use notify (lighter on battery). */
+    private fun postSessionNotification(notification: Notification) {
+        if (!foregroundStarted) {
+            startForeground(NOTIFICATION_ID, notification)
+            foregroundStarted = true
+        } else {
+            notificationManager.notify(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun syncMediaSession() {
@@ -232,8 +274,8 @@ class PomodoroService : Service() {
     }
 
     override fun onDestroy() {
-        tickJob?.cancel()
-        ambient.release()
+        SessionAlarms.cancel(this)
+        ambient.stopImmediate()
         IslandOverlay.hide()
         mediaSession?.release()
         mediaSession = null
@@ -247,6 +289,7 @@ class PomodoroService : Service() {
         const val ACTION_START_BREAK = "start_break"
         const val ACTION_HOLD_PAUSE = "hold_pause"
         const val ACTION_REFRESH_NOTIFICATION = "refresh_notification"
+        const val ACTION_SESSION_ALARM = "session_alarm"
         const val ACTION_STOP = "stop"
         private const val CHANNEL_ID = "pomodoro_session_v2"
         private const val NOTIFICATION_ID = 1
@@ -272,6 +315,15 @@ class PomodoroService : Service() {
             context.startForegroundService(
                 Intent(context, PomodoroService::class.java).setAction(ACTION_REFRESH_NOTIFICATION)
             )
+        }
+
+        /** SessionAlarmReceiver */
+        fun expireIfDue(context: Context) {
+            val app = context.applicationContext
+            if (TimerStore.phase(app) == Phase.IDLE) return
+            if (TimerStore.isSessionPaused(app)) return
+            if (TimerStore.remainingSeconds(app) > 0) return
+            SessionAlarms.deliverPhaseEnd(app)
         }
 
         /** Ends the session completely. */

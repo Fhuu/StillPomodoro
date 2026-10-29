@@ -16,8 +16,33 @@ import kotlin.math.max
 object NowBarArt {
     private const val SIZE_PX = 192
 
-    fun icon(context: Context): Icon =
-        Icon.createWithBitmap(render(context.applicationContext, TimerStore.phaseProgress(context)))
+    private data class IconCacheKey(
+        val bucket: Int,
+        val phase: Phase,
+        val artId: Int,
+        val phaseDurationSec: Int,
+    )
+
+    private var cacheKey: IconCacheKey? = null
+    private var cacheIcon: Icon? = null
+
+    fun icon(context: Context): Icon {
+        val app = context.applicationContext
+        val key = IconCacheKey(
+            ProgressRefresh.progressBucket(app),
+            TimerStore.phase(app),
+            System.identityHashCode(AmbientArt.currentBitmap()),
+            TimerStore.phaseDurationSeconds(app),
+        )
+        if (cacheKey == key) {
+            cacheIcon?.let { return it }
+        }
+        val bitmap = render(app, TimerStore.phaseProgress(app))
+        val icon = Icon.createWithBitmap(bitmap)
+        cacheKey = key
+        cacheIcon = icon
+        return icon
+    }
 
     private fun render(context: Context, progress: Float): Bitmap {
         val size = SIZE_PX

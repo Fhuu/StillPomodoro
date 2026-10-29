@@ -11,8 +11,25 @@ import android.view.animation.AccelerateDecelerateInterpolator
 class IslandRingView(context: Context) : View(context) {
     var progress: Float = 0f
         set(value) {
-            field = value.coerceIn(0f, 1f)
-            invalidate()
+            val target = value.coerceIn(0f, 1f)
+            if (kotlin.math.abs(target - field) < 0.0005f) return
+            progressAnimator?.cancel()
+            if (target <= field) {
+                field = target
+                invalidate()
+                return
+            }
+            val from = field
+            progressAnimator = ValueAnimator.ofFloat(from, target).apply {
+                val step = ProgressRefresh.PROGRESS_STEP
+                duration = (2000f * ((target - from) / step)).toLong().coerceIn(600L, 2000L)
+                interpolator = AccelerateDecelerateInterpolator()
+                addUpdateListener {
+                    field = it.animatedValue as Float
+                    invalidate()
+                }
+                start()
+            }
         }
     var ringColor: Int = 0xFFC56B4A.toInt()
         set(value) {
@@ -27,6 +44,7 @@ class IslandRingView(context: Context) : View(context) {
 
     private var ringAlpha = 1f
     private var pulseAnimator: ValueAnimator? = null
+    private var progressAnimator: ValueAnimator? = null
 
     private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -44,8 +62,8 @@ class IslandRingView(context: Context) : View(context) {
         if (active) {
             if (pulseAnimator?.isRunning == true) return
             pulseAnimator?.cancel()
-            pulseAnimator = ValueAnimator.ofFloat(0.4f, 1f).apply {
-                duration = 900
+            pulseAnimator = ValueAnimator.ofFloat(0.55f, 1f).apply {
+                duration = 2000
                 repeatMode = ValueAnimator.REVERSE
                 repeatCount = ValueAnimator.INFINITE
                 interpolator = AccelerateDecelerateInterpolator()
@@ -64,6 +82,7 @@ class IslandRingView(context: Context) : View(context) {
     }
 
     override fun onDetachedFromWindow() {
+        progressAnimator?.cancel()
         setPulsing(false)
         super.onDetachedFromWindow()
     }
@@ -74,7 +93,7 @@ class IslandRingView(context: Context) : View(context) {
         if (drawTrack) {
             canvas.drawArc(rect, -90f, 360f, false, track)
         }
-        val sweep = if (progress > 0f) 360f * progress else 360f
+        val sweep = 360f * progress.coerceIn(0f, 1f)
         arc.color = ringColor
         arc.alpha = (ringAlpha * 255f).toInt().coerceIn(0, 255)
         canvas.drawArc(rect, -90f, sweep, false, arc)
