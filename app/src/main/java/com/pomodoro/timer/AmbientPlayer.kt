@@ -15,7 +15,6 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
-import androidx.documentfile.provider.DocumentFile
 import kotlin.random.Random
 
 class AmbientPlayer(private val context: Context) {
@@ -58,13 +57,22 @@ class AmbientPlayer(private val context: Context) {
 
     fun sync(phase: Phase) {
         when (phase) {
-            Phase.IDLE -> fadeOutStop()
-            Phase.BREAK -> crossfadeTo(breakOceanUri(), loop = true, loadArt = false)
+            Phase.IDLE -> {
+                YoutubeAudioPlayer.stop()
+                fadeOutStop()
+            }
+            Phase.BREAK -> {
+                YoutubeAudioPlayer.stop()
+                crossfadeTo(breakOceanUri(), loop = true, loadArt = false)
+            }
             Phase.FOCUS -> syncFocusAmbient()
         }
     }
 
-    fun release() = fadeOutAndStop()
+    fun release() {
+        fadeOutStop()
+        YoutubeAudioPlayer.release()
+    }
 
     /** Fade out ambient (session stop, phase change). */
     fun fadeOutAndStop() = fadeOutStop()
@@ -72,6 +80,7 @@ class AmbientPlayer(private val context: Context) {
     /** Hard stop — task removed / must not keep playing after stop. */
     fun stopImmediate() {
         cancelCrossfade()
+        YoutubeAudioPlayer.stop()
         runCatching {
             player?.stop()
             player?.release()
@@ -93,11 +102,16 @@ class AmbientPlayer(private val context: Context) {
             return
         }
         player?.pause()
+        YoutubeAudioPlayer.pause()
     }
 
     fun resumeFromSessionHold(phase: Phase) {
         if (phase == Phase.BREAK) {
             sync(Phase.BREAK)
+            return
+        }
+        if (TimerStore.ambientMode(context) == AmbientMode.YOUTUBE) {
+            YoutubeAudioPlayer.resume()
             return
         }
         val p = player
@@ -114,15 +128,43 @@ class AmbientPlayer(private val context: Context) {
 
     private fun syncFocusAmbient() {
         when (TimerStore.ambientMode(context)) {
-            AmbientMode.OFF -> fadeOutStop()
-            AmbientMode.FILE -> crossfadeTo(Uri.parse(TimerStore.ambientUri(context)), loop = true, loadArt = true)
-            AmbientMode.FOLDER -> {
-                val tree = Uri.parse(TimerStore.ambientUri(context))
-                val files = audioFilesIn(tree)
-                if (files.isEmpty()) fadeOutStop()
-                else crossfadeTo(files[Random.nextInt(files.size)], loop = false, loadArt = true, folderPlaylist = files)
+            AmbientMode.OFF -> {
+                YoutubeAudioPlayer.stop()
+                fadeOutStop()
+            }
+            AmbientMode.LIBRARY -> {
+                YoutubeAudioPlayer.stop()
+                syncLibraryAmbient()
+            }
+            AmbientMode.YOUTUBE -> {
+                fadeOutStop()
+                val id = TimerStore.youtubeVideoId(context) ?: return
+                requestFocus()
+                startMonitoring()
+                YoutubeAudioPlayer.play(context, id)
             }
         }
+    }
+
+    private fun syncLibraryAmbient() {
+        val tree = TimerStore.libraryUri(context)?.let { Uri.parse(it) }
+        val tracks = tree?.let { AmbientLibrary.listTracks(context, it).map { t -> t.uri } }.orEmpty()
+        val pick = TimerStore.selectedTrackUri(context)?.let { Uri.parse(it) }
+        val start = when {
+            pick != null && tracks.contains(pick) -> pick
+            pick != null && tracks.isEmpty() -> pick
+            tracks.isNotEmpty() -> tracks.random()
+            else -> return fadeOutStop()
+        }
+        if (pick == null || (tracks.isNotEmpty() && pick !in tracks)) {
+            TimerStore.setSelectedTrack(
+                context,
+                start.toString(),
+                AmbientLibrary.displayName(context, start),
+            )
+        }
+        val playlist = if (tracks.size > 1) tracks else null
+        crossfadeTo(start, loop = tracks.size <= 1, loadArt = true, folderPlaylist = playlist)
     }
 
     private fun breakOceanUri(): Uri =
@@ -278,8 +320,8 @@ class AmbientPlayer(private val context: Context) {
     }
 
     private fun silenceForPublicOutput() {
-        if (player?.isPlaying != true) return
-        fadeOutStop()
+        YoutubeAudioPlayer.stop()
+        if (player?.isPlaying == true) fadeOutStop()
     }
 
     private fun hasPrivateOutput(): Boolean {
@@ -323,21 +365,7 @@ class AmbientPlayer(private val context: Context) {
         } catch (_: IllegalArgumentException) { }
     }
 
-    private fun audioFilesIn(treeUri: Uri): List<Uri> {
-        val root = DocumentFile.fromTreeUri(appContext, treeUri) ?: return emptyList()
-        return root.listFiles()
-            .filter { it.isFile && (it.type?.startsWith("audio/") == true || looksLikeAudio(it.name)) }
-            .map { it.uri }
-    }
-
-    private fun looksLikeAudio(name: String?): Boolean {
-        if (name == null) return false
-        val lower = name.lowercase()
-        return lower.endsWith(".mp3") || lower.endsWith(".ogg") || lower.endsWith(".wav")
-                || lower.endsWith(".flac") || lower.endsWith(".m4a")
-    }
-
-    companion object {
+    private companion object {
         private const val TAG = "AmbientPlayer"
         private const val CROSSFADE_MS = 2_500L
         private const val FADE_STEPS = 25
