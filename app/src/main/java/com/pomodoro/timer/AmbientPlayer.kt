@@ -64,15 +64,42 @@ class AmbientPlayer(private val context: Context) {
         }
     }
 
-    fun release() = fadeOutStop()
+    fun release() = fadeOutAndStop()
 
-    /** Keeps playback position when the user pauses the pomodoro session. */
+    /** Fade out ambient (session stop, phase change). */
+    fun fadeOutAndStop() = fadeOutStop()
+
+    /** Hard stop — task removed / must not keep playing after stop. */
+    fun stopImmediate() {
+        cancelCrossfade()
+        runCatching {
+            player?.stop()
+            player?.release()
+        }
+        player = null
+        runCatching { crossfadeOut?.release() }
+        crossfadeOut = null
+        stopSilent()
+    }
+
+    /** Stops ambient while the timer is on hold (break waves fade out; focus track keeps position). */
     fun pauseForSessionHold() {
         cancelCrossfade()
+        runCatching { crossfadeOut?.stop() }
+        runCatching { crossfadeOut?.release() }
+        crossfadeOut = null
+        if (TimerStore.phase(appContext) == Phase.BREAK) {
+            stopImmediate()
+            return
+        }
         player?.pause()
     }
 
     fun resumeFromSessionHold(phase: Phase) {
+        if (phase == Phase.BREAK) {
+            sync(Phase.BREAK)
+            return
+        }
         val p = player
         if (p != null) {
             runCatching {
@@ -131,8 +158,12 @@ class AmbientPlayer(private val context: Context) {
 
         folderFiles = folderPlaylist
         val outgoing = player
-        if (outgoing == null || !outgoing.isPlaying) {
+        if (outgoing == null || (!outgoing.isPlaying && crossfadeOut == null)) {
             outgoing?.release()
+            if (!TimerStore.isSessionActive(appContext)) {
+                incoming.release()
+                return
+            }
             incoming.setVolume(1f, 1f)
             incoming.start()
             player = incoming
@@ -141,6 +172,10 @@ class AmbientPlayer(private val context: Context) {
         }
 
         incoming.setVolume(0f, 0f)
+        if (!TimerStore.isSessionActive(appContext)) {
+            incoming.release()
+            return
+        }
         incoming.start()
         player = incoming
         crossfadeOut = outgoing
@@ -210,6 +245,10 @@ class AmbientPlayer(private val context: Context) {
     }
 
     private fun onPlaybackStarted(uri: Uri, loadArt: Boolean) {
+        if (TimerStore.phase(appContext) == Phase.IDLE) {
+            stopImmediate()
+            return
+        }
         if (loadArt) {
             TimerStore.setNowPlayingUri(appContext, uri.toString())
             AmbientArt.load(appContext, uri) {
