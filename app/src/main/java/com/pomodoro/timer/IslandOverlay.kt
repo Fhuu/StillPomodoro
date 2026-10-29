@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Typeface
 import android.hardware.display.DisplayManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.Display
 import android.view.Gravity
@@ -35,6 +37,8 @@ object IslandOverlay {
     private var appContext: Context? = null
     private var compactW = 0
     private var compactH = 0
+    private val progressHandler = Handler(Looper.getMainLooper())
+    private var progressTick: Runnable? = null
 
     fun canDraw(context: Context): Boolean =
         Settings.canDrawOverlays(context.applicationContext)
@@ -78,6 +82,7 @@ object IslandOverlay {
     }
 
     fun hide() {
+        stopProgressTick()
         compactRing?.setPulsing(false)
         shell?.let { wm?.removeView(it) }
         shell = null
@@ -126,17 +131,45 @@ object IslandOverlay {
         val phase = TimerStore.phase(ctx)
         val style = TimerStore.islandCompactStyle(ctx)
         val time = TimerStore.formatRemainingMinutes(ctx)
-        val prog = TimerStore.phaseProgress(ctx)
         val barColor = accentColor(phase)
         val ringColor = TimerStore.islandRingColor(ctx)
         val running = TimerStore.isSessionActive(ctx) && !TimerStore.isSessionPaused(ctx)
         compactTime?.text = time
-        compactProgress?.progress = prog
         compactProgress?.barColor = barColor
-        compactRing?.progress = prog
+        applyIslandProgress(ctx)
         compactRing?.ringColor = ringColor
         compactRing?.drawTrack = style != TimerStore.IslandCompactStyle.RING_ONLY
         compactRing?.setPulsing(style == TimerStore.IslandCompactStyle.RING_ONLY && running)
+        syncProgressTick(ctx)
+    }
+
+    private fun applyIslandProgress(ctx: Context) {
+        val prog = ProgressRefresh.islandRingProgress(ctx)
+        compactRing?.progress = prog
+        compactProgress?.progress = prog
+    }
+
+    private fun syncProgressTick(ctx: Context) {
+        stopProgressTick()
+        if (shell == null) return
+        val app = ctx.applicationContext
+        if (!TimerStore.isSessionActive(app) || TimerStore.isSessionPaused(app)) return
+        val tick = object : Runnable {
+            override fun run() {
+                val c = appContext ?: return
+                applyIslandProgress(c)
+                if (!TimerStore.isSessionActive(c) || TimerStore.isSessionPaused(c)) return
+                val delay = ProgressRefresh.msUntilNextProgressStep(c).coerceIn(16L, 500L)
+                progressHandler.postDelayed(this, delay)
+            }
+        }
+        progressTick = tick
+        progressHandler.post(tick)
+    }
+
+    private fun stopProgressTick() {
+        progressTick?.let { progressHandler.removeCallbacks(it) }
+        progressTick = null
     }
 
     fun reloadArt(context: Context) {
