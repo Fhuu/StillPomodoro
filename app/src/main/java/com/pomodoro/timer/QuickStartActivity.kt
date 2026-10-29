@@ -44,7 +44,7 @@ class QuickStartActivity : ComponentActivity() {
 @Composable
 private fun QuickStartSheet(onDismiss: () -> Unit) {
     val context = LocalContext.current
-    var minutes by remember { mutableIntStateOf(TimerStore.focusMinutes(context)) }
+    var focusSec by remember { mutableIntStateOf(TimerStore.focusDurationSeconds(context)) }
     var ambientLabel by remember { mutableStateOf(TimerStore.ambientLabel(context)) }
 
     Dialog(
@@ -68,14 +68,14 @@ private fun QuickStartSheet(onDismiss: () -> Unit) {
             ) {
                 Text("Start session", style = MaterialTheme.typography.titleLarge)
                 Text("Length", style = MaterialTheme.typography.labelLarge)
-                SessionKnob(minutes = minutes, onMinutesChange = { minutes = it })
+                SessionKnob(focusSeconds = focusSec, onFocusSecondsChange = { focusSec = it })
                 Text("Ambient", style = MaterialTheme.typography.labelLarge)
                 Text(ambientLabel ?: "None", style = MaterialTheme.typography.bodySmall)
                 AmbientPickers(onChanged = { ambientLabel = TimerStore.ambientLabel(context) })
                 Spacer(Modifier.height(4.dp))
                 Button(
                     onClick = {
-                        TimerStore.setFocusMinutes(context, minutes)
+                        TimerStore.setFocusDurationSeconds(context, focusSec)
                         promptOverlayIfNeeded(context)
                         PomodoroService.startFocus(context)
                         onDismiss()
@@ -83,7 +83,7 @@ private fun QuickStartSheet(onDismiss: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     shape = SoftCardShape,
                     colors = ButtonDefaults.buttonColors(containerColor = AppColors.Terracotta)
-                ) { Text("Begin · $minutes min") }
+                ) { Text("Begin · ${TimerStore.formatFocusDurationLabel(focusSec)}") }
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), shape = SoftCardShape) {
                     Text("Cancel")
                 }
