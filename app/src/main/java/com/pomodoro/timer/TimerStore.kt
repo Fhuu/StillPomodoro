@@ -2,13 +2,51 @@ package com.pomodoro.timer
 
 import android.content.Context
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 enum class Phase { IDLE, FOCUS, BREAK }
 
 enum class AmbientMode { OFF, FILE, FOLDER }
 
+data class SessionControlFingerprint(val phase: Phase, val paused: Boolean, val endAtMillis: Long)
+
 object TimerStore {
     private const val PREFS = "pomodoro"
+
+    /** Knob snap step in minutes (5 min steps, 5–60 min). */
+    val FOCUS_KNOB_STEP_MINUTES = 5f
+
+    private fun focusKnobStepSeconds(): Int = (FOCUS_KNOB_STEP_MINUTES * 60f).roundToInt().coerceAtLeast(1)
+
+    fun snapFocusSeconds(seconds: Int): Int {
+        val step = focusKnobStepSeconds()
+        val min = step
+        val max = 60 * 60
+        val s = seconds.coerceIn(min, max)
+        return ((s.toFloat() / step).roundToInt() * step).coerceIn(min, max)
+    }
+
+    fun focusDurationSeconds(context: Context): Int {
+        val p = prefs(context)
+        val raw = if (p.contains("focus_sec")) {
+            p.getInt("focus_sec", 25 * 60)
+        } else {
+            p.getInt("focus_min", 25) * 60
+        }
+        return snapFocusSeconds(raw)
+    }
+
+    fun setFocusDurationSeconds(context: Context, seconds: Int) {
+        prefs(context).edit().putInt("focus_sec", snapFocusSeconds(seconds)).apply()
+    }
+
+    fun formatFocusDurationLabel(seconds: Int): String {
+        val s = snapFocusSeconds(seconds)
+        if (s < 60) return "${s}s"
+        if (s % 60 == 0) return "${s / 60} min"
+        if (s % 30 == 0) return "${s / 60}.5 min"
+        return "%d:%02d".format(s / 60, s % 60)
+    }
 
     fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -25,6 +63,21 @@ object TimerStore {
 
     fun setEndAtMillis(context: Context, value: Long) {
         prefs(context).edit().putLong("end_at", value).apply()
+    }
+
+    /** Length of the current phase run (set when the phase starts). */
+    fun runningPhaseTotalSeconds(context: Context): Int {
+        val stored = prefs(context).getInt("phase_total_sec", 0)
+        if (stored > 0 && endAtMillis(context) > 0L) return stored
+        return phaseDurationSeconds(context)
+    }
+
+    fun setRunningPhaseTotalSeconds(context: Context, seconds: Int) {
+        prefs(context).edit().putInt("phase_total_sec", seconds.coerceAtLeast(0)).apply()
+    }
+
+    fun clearRunningPhaseTotalSeconds(context: Context) {
+        prefs(context).edit().remove("phase_total_sec").apply()
     }
 
     fun remainingSeconds(context: Context): Int {
@@ -62,13 +115,20 @@ object TimerStore {
     fun pausedRemainingSeconds(context: Context) =
         prefs(context).getInt("paused_remaining", 0)
 
-    fun focusMinutes(context: Context) = prefs(context).getInt("focus_min", 25)
     fun breakMinutes(context: Context) = prefs(context).getInt("break_min", 5)
 
     fun setFocusMinutes(context: Context, minutes: Int) {
-        val step = 5
-        val m = ((minutes.coerceIn(5, 60) + step / 2) / step * step).coerceIn(5, 60)
-        prefs(context).edit().putInt("focus_min", m).apply()
+        setFocusDurationSeconds(context, minutes * 60)
+    }
+
+    /** How often island / widget refresh on minute boundaries (1 or 5). */
+    fun uiRefreshMinuteStep(context: Context): Int {
+        val v = prefs(context).getInt("ui_refresh_minute_step", 1)
+        return if (v == 1) 1 else 5
+    }
+
+    fun setUiRefreshMinuteStep(context: Context, minutes: Int) {
+        prefs(context).edit().putInt("ui_refresh_minute_step", if (minutes == 1) 1 else 5).apply()
     }
 
     fun ambientMode(context: Context): AmbientMode =
@@ -113,18 +173,34 @@ object TimerStore {
             .apply()
     }
 
-    fun formatRemaining(context: Context): String {
-        val sec = remainingSeconds(context)
-        if (phase(context) == Phase.IDLE && sec == 0) return "--:--"
+    fun formatSecondsRemaining(sec: Int, showIdlePlaceholder: Boolean = false): String {
+        if (showIdlePlaceholder && sec == 0) return "--:--"
         return "%02d:%02d".format(sec / 60, sec % 60)
     }
 
-    /** Minutes left (rounded up), for compact island. */
+    fun formatRemaining(context: Context): String {
+        val sec = remainingSeconds(context)
+        return formatSecondsRemaining(sec, showIdlePlaceholder = phase(context) == Phase.IDLE)
+    }
+
+    /** Minutes left for island, widget, and notification (step matches timer update setting). */
     fun formatRemainingMinutes(context: Context): String {
         val sec = remainingSeconds(context)
         if (phase(context) == Phase.IDLE && sec == 0) return "--"
         if (sec <= 0) return "0"
-        return ((sec + 59) / 60).toString()
+        val minuteLeft = (sec + 59) / 60
+        val step = uiRefreshMinuteStep(context)
+        if (step <= 1 || minuteLeft <= step) return minuteLeft.toString()
+        val snapped = ((minuteLeft - 1) / step + 1) * step
+        return snapped.toString()
+    }
+
+    /** Notification / widget copy for stepped minutes remaining. */
+    fun minutesLeftPhrase(context: Context): String {
+        val min = formatRemainingMinutes(context)
+        if (min == "--") return "--"
+        if (min == "0") return "less than 1 minute left"
+        return if (min == "1") "less than 1 minute left" else "less than $min minutes left"
     }
 
     fun phaseLabel(context: Context): String = when (phase(context)) {
@@ -134,24 +210,31 @@ object TimerStore {
     }
 
     fun phaseDurationSeconds(context: Context): Int = when (phase(context)) {
-        Phase.FOCUS -> focusMinutes(context) * 60
+        Phase.FOCUS -> focusDurationSeconds(context)
         Phase.BREAK -> breakMinutes(context) * 60
         Phase.IDLE -> 0
     }
 
-    /** 0 = just started, 1 = phase complete */
+    /** 0 = just started, 1 = phase complete (millisecond-accurate while running). */
     fun phaseProgress(context: Context): Float {
-        val total = when {
+        val totalSec = when {
             isSessionPaused(context) -> when (pausedPhase(context)) {
-                Phase.FOCUS -> focusMinutes(context) * 60
-                Phase.BREAK -> breakMinutes(context) * 60
+                Phase.FOCUS, Phase.BREAK -> runningPhaseTotalSeconds(context).takeIf { it > 0 }
+                    ?: phaseDurationSeconds(context)
                 Phase.IDLE -> 0
             }
-            else -> phaseDurationSeconds(context)
+            else -> runningPhaseTotalSeconds(context)
         }
-        if (total <= 0) return 0f
-        val done = total - remainingSeconds(context)
-        return (done.toFloat() / total).coerceIn(0f, 1f)
+        if (totalSec <= 0) return 0f
+        val totalMs = totalSec * 1000L
+        if (isSessionPaused(context)) {
+            val rem = pausedRemainingSeconds(context)
+            return ((totalSec - rem).toFloat() / totalSec).coerceIn(0f, 1f)
+        }
+        val end = endAtMillis(context)
+        if (end <= 0L) return 0f
+        val msLeft = (end - System.currentTimeMillis()).coerceAtLeast(0L)
+        return ((totalMs - msLeft).toFloat() / totalMs).coerceIn(0f, 1f)
     }
 
     /** Horizontal nudge of island from screen center (dp). */
@@ -265,4 +348,10 @@ object TimerStore {
         if (isSessionPaused(context)) return pausedRemainingSeconds(context) > 0
         return phase(context) != Phase.IDLE && remainingSeconds(context) > 0
     }
+
+    fun sessionControlFingerprint(context: Context) = SessionControlFingerprint(
+        phase(context),
+        isSessionPaused(context),
+        endAtMillis(context),
+    )
 }
