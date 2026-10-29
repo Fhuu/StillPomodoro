@@ -33,18 +33,20 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-private const val MIN_MIN = 5
-private const val MAX_MIN = 60
-private const val STEP_MIN = 5
+private const val KNOB_MAX_SECONDS = 60 * 60
 
 @Composable
-fun SessionKnob(minutes: Int, onMinutesChange: (Int) -> Unit, modifier: Modifier = Modifier) {
+fun SessionKnob(
+    focusSeconds: Int,
+    onFocusSecondsChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val view = LocalView.current
-    val clamped = snapMinutes(minutes)
-    var dragAngle by remember { mutableFloatStateOf(minutesToAngle(clamped)) }
+    val clamped = snapSeconds(focusSeconds)
+    var dragAngle by remember { mutableFloatStateOf(secondsToAngle(clamped)) }
     var lastSnapped by remember { mutableIntStateOf(clamped) }
     LaunchedEffect(clamped) {
-        dragAngle = minutesToAngle(clamped)
+        dragAngle = secondsToAngle(clamped)
         lastSnapped = clamped
     }
 
@@ -55,21 +57,21 @@ fun SessionKnob(minutes: Int, onMinutesChange: (Int) -> Unit, modifier: Modifier
                 .pointerInput(Unit) {
                     detectDragGestures(
                         onDragStart = { pos ->
-                            val m = snapMinutes(angleToMinutes(touchAngle(pos, size.width, size.height)))
-                            dragAngle = minutesToAngle(m)
-                            if (m != lastSnapped) {
+                            val s = snapSeconds(angleToSeconds(touchAngle(pos, size.width, size.height)))
+                            dragAngle = secondsToAngle(s)
+                            if (s != lastSnapped) {
                                 tickHaptic(view)
-                                lastSnapped = m
-                                onMinutesChange(m)
+                                lastSnapped = s
+                                onFocusSecondsChange(s)
                             }
                         },
                         onDrag = { change, _ ->
-                            val m = snapMinutes(angleToMinutes(touchAngle(change.position, size.width, size.height)))
-                            dragAngle = minutesToAngle(m)
-                            if (m != lastSnapped) {
+                            val s = snapSeconds(angleToSeconds(touchAngle(change.position, size.width, size.height)))
+                            dragAngle = secondsToAngle(s)
+                            if (s != lastSnapped) {
                                 tickHaptic(view)
-                                lastSnapped = m
-                                onMinutesChange(m)
+                                lastSnapped = s
+                                onFocusSecondsChange(s)
                             }
                         }
                     )
@@ -79,7 +81,7 @@ fun SessionKnob(minutes: Int, onMinutesChange: (Int) -> Unit, modifier: Modifier
             val arcSize = Size(size.width - stroke, size.height - stroke)
             val arcTopLeft = Offset(stroke / 2, stroke / 2)
             val r = size.minDimension / 2f - stroke
-            val sweep = (clamped / 60f) * 360f
+            val sweep = (clamped.toFloat() / KNOB_MAX_SECONDS) * 360f
 
             drawArc(
                 color = AppColors.CreamDeep,
@@ -102,7 +104,7 @@ fun SessionKnob(minutes: Int, onMinutesChange: (Int) -> Unit, modifier: Modifier
                 )
             }
 
-            val rad = Math.toRadians(minutesToAngle(clamped).toDouble())
+            val rad = Math.toRadians(secondsToAngle(clamped).toDouble())
             val cx = size.width / 2f
             val cy = size.height / 2f
             val knobR = r * 0.72f
@@ -115,7 +117,7 @@ fun SessionKnob(minutes: Int, onMinutesChange: (Int) -> Unit, modifier: Modifier
                 )
             )
         }
-        Text("$clamped min", style = MaterialTheme.typography.titleMedium)
+        Text(TimerStore.formatFocusDurationLabel(clamped), style = MaterialTheme.typography.titleMedium)
     }
 }
 
@@ -144,21 +146,18 @@ private fun touchAngle(pos: Offset, w: Int, h: Int): Float {
     return Math.toDegrees(atan2((pos.y - cy).toDouble(), (pos.x - cx).toDouble())).toFloat()
 }
 
-private fun minutesToAngle(minutes: Int): Float {
-    val m = minutes.coerceIn(MIN_MIN, MAX_MIN)
-    return -90f + (m / 60f) * 360f
+private fun snapSeconds(seconds: Int): Int = TimerStore.snapFocusSeconds(seconds)
+
+private fun secondsToAngle(seconds: Int): Float {
+    val s = snapSeconds(seconds)
+    return -90f + (s.toFloat() / KNOB_MAX_SECONDS) * 360f
 }
 
-private fun snapMinutes(minutes: Int): Int {
-    val m = minutes.coerceIn(MIN_MIN, MAX_MIN)
-    return ((m.toFloat() / STEP_MIN).roundToInt() * STEP_MIN).coerceIn(MIN_MIN, MAX_MIN)
-}
-
-private fun angleToMinutes(angle: Float): Int {
+private fun angleToSeconds(angle: Float): Int {
     var a = angle
     while (a < 0f) a += 360f
     while (a >= 360f) a -= 360f
     val fromTop = (a + 90f) % 360f
-    val raw = (fromTop / 360f * 60f).roundToInt()
-    return snapMinutes(raw)
+    val raw = (fromTop / 360f * KNOB_MAX_SECONDS).roundToInt()
+    return snapSeconds(raw)
 }
