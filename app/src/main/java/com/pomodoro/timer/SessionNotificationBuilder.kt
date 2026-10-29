@@ -88,11 +88,9 @@ object SessionNotificationBuilder {
     ): Notification {
         val paused = TimerStore.isSessionPaused(context)
         val phaseLabel = if (paused) "Paused" else TimerStore.phaseLabel(context)
-        val minutes = TimerStore.formatRemainingMinutes(context)
-        val title = "$phaseLabel · $minutes min"
         val progressPct = (TimerStore.phaseProgress(context) * 100f).toInt().coerceIn(0, 100)
         val pauseLabel = if (paused) "Resume" else "Pause"
-        val chip = if (paused) "Pause" else "${minutes}m"
+        val chip = if (paused) "Pause" else phaseLabel
 
         val sessionIcon = NowBarArt.icon(context)
         val extras = Bundle().apply {
@@ -101,8 +99,9 @@ object SessionNotificationBuilder {
         }
 
         val builder = Notification.Builder(context, channelId)
-            .setContentTitle(title)
-            .setContentText(TimerStore.formatRemaining(context))
+            .setContentTitle(phaseLabel)
+            .setContentText(minutesLeftLine(context, paused))
+            .setSubText(ambientLine(context))
             .setSmallIcon(R.drawable.ic_stat_pomodoro)
             .setLargeIcon(sessionIcon)
             .setContentIntent(openIntent)
@@ -119,7 +118,7 @@ object SessionNotificationBuilder {
             .setShortCriticalText(chip)
             .addExtras(extras)
 
-        applyCountdownChronometer(builder, context, paused)
+        applySessionChronometer(builder, context, paused)
         if (mediaSessionToken != null) {
             applyMediaStyle(builder, mediaSessionToken)
         } else if (Build.VERSION.SDK_INT >= 37 && applyMetricStyle(builder, context, paused, progressPct)) {
@@ -196,11 +195,9 @@ object SessionNotificationBuilder {
     ): Notification {
         val paused = TimerStore.isSessionPaused(context)
         val phaseLabel = if (paused) "Paused" else TimerStore.phaseLabel(context)
-        val minutes = TimerStore.formatRemainingMinutes(context)
-        val title = "$phaseLabel · $minutes min"
         val pauseLabel = if (paused) "Resume" else "Pause"
         val progressPct = (TimerStore.phaseProgress(context) * 100f).toInt().coerceIn(0, 100)
-        val chip = if (paused) "Pause" else "${minutes}m"
+        val chip = if (paused) "Pause" else phaseLabel
 
         val sessionIcon = NowBarArt.icon(context)
         val extras = Bundle().apply {
@@ -209,8 +206,9 @@ object SessionNotificationBuilder {
         }
 
         val builder = Notification.Builder(context, channelId)
-            .setContentTitle(title)
-            .setContentText(TimerStore.formatRemaining(context))
+            .setContentTitle(phaseLabel)
+            .setContentText(minutesLeftLine(context, paused))
+            .setSubText(ambientLine(context))
             .setSmallIcon(R.drawable.ic_stat_pomodoro)
             .setLargeIcon(sessionIcon)
             .setContentIntent(openIntent)
@@ -228,7 +226,7 @@ object SessionNotificationBuilder {
 
         if (Build.VERSION.SDK_INT >= 36) {
             builder.setShortCriticalText(chip)
-            applyCountdownChronometer(builder, context, paused)
+            applySessionChronometer(builder, context, paused)
             builder.setStyle(
                 Notification.ProgressStyle()
                     .setProgress(progressPct)
@@ -240,9 +238,7 @@ object SessionNotificationBuilder {
                     .invoke(builder, true)
             }
         } else {
-            builder.setWhen(countdownWhen(context, paused))
-            builder.setShowWhen(false)
-            builder.setUsesChronometer(!paused)
+            applySessionChronometer(builder, context, paused)
         }
 
         return builder.build()
@@ -258,16 +254,17 @@ object SessionNotificationBuilder {
     ): Notification {
         val pauseLabel = if (TimerStore.isSessionPaused(context)) "Resume" else "Pause"
         val phaseLabel = if (TimerStore.isSessionPaused(context)) "Paused" else TimerStore.phaseLabel(context)
-        val minutes = TimerStore.formatRemainingMinutes(context)
-        val detail = "${TimerStore.formatRemaining(context)} · ${ambientLine(context)}"
         val paused = TimerStore.isSessionPaused(context)
         val pauseIcon = if (paused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause
         val style = mediaStyle(mediaSessionToken)
-        return NotificationCompat.Builder(context, channelId)
-            .setContentTitle("$phaseLabel · $minutes min")
-            .setContentText(detail)
+        val builder = NotificationCompat.Builder(context, channelId)
+            .setContentTitle(phaseLabel)
+            .setContentText(minutesLeftLine(context, paused))
+            .setSubText(ambientLine(context))
             .setStyle(
-                style ?: NotificationCompat.BigTextStyle().bigText(detail),
+                style ?: NotificationCompat.BigTextStyle().bigText(
+                    "${minutesLeftLine(context, paused)}\n${ambientLine(context)}",
+                ),
             )
             .setSmallIcon(R.drawable.ic_stat_pomodoro)
             .setContentIntent(openIntent)
@@ -280,7 +277,8 @@ object SessionNotificationBuilder {
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .build()
+        applySessionChronometerCompat(builder, context, paused)
+        return builder.build()
     }
 
     private fun mediaStyle(token: MediaSessionCompat.Token?): MediaStyle? =
@@ -304,17 +302,16 @@ object SessionNotificationBuilder {
         @Suppress("UNUSED_PARAMETER") stopIntent: PendingIntent,
     ): Bundle {
         val paused = TimerStore.isSessionPaused(context)
-        val minutes = TimerStore.formatRemainingMinutes(context)
         val phase = if (paused) "Paused" else TimerStore.phaseLabel(context)
-        val clock = TimerStore.formatRemaining(context)
+        val minutes = minutesLeftLine(context, paused)
         val progressPct = (TimerStore.phaseProgress(context) * 100f).toInt().coerceIn(0, 100)
         return Bundle().apply {
             // 1 = Live Notifications drawer + Now Bar (2 = Now Bar only, hides shade actions).
             putInt("android.ongoingActivityNoti.style", 1)
             putString("android.ongoingActivityNoti.primaryInfo", phase)
-            putString("android.ongoingActivityNoti.secondaryInfo", "$minutes min · $clock")
-            putString("android.ongoingActivityNoti.nowbarPrimaryInfo", clock)
-            putString("android.ongoingActivityNoti.nowbarSecondaryInfo", phase)
+            putString("android.ongoingActivityNoti.secondaryInfo", minutes)
+            putString("android.ongoingActivityNoti.nowbarPrimaryInfo", phase)
+            putString("android.ongoingActivityNoti.nowbarSecondaryInfo", minutes)
             putInt("android.ongoingActivityNoti.actionType", 1)
             putInt("android.ongoingActivityNoti.actionPrimarySet", 0)
             putInt("android.ongoingActivityNoti.progress", progressPct)
@@ -325,12 +322,17 @@ object SessionNotificationBuilder {
         }
     }
 
-    @RequiresApi(36)
-    private fun applyCountdownChronometer(builder: Notification.Builder, context: Context, paused: Boolean) {
-        if (paused) return
-        val remainingMs = TimerStore.remainingSeconds(context) * 1000L
-        if (remainingMs <= 0) return
-        builder.setWhen(System.currentTimeMillis() + remainingMs)
+    /** System countdown to [TimerStore.endAtMillis] — no app wake each second. */
+    private fun applySessionChronometer(builder: Notification.Builder, context: Context, paused: Boolean) {
+        if (paused) {
+            builder.setWhen(System.currentTimeMillis())
+            builder.setShowWhen(true)
+            builder.setUsesChronometer(false)
+            return
+        }
+        val end = TimerStore.endAtMillis(context)
+        if (end <= System.currentTimeMillis()) return
+        builder.setWhen(end)
         builder.setShowWhen(false)
         builder.setUsesChronometer(true)
         runCatching {
@@ -340,9 +342,23 @@ object SessionNotificationBuilder {
         }
     }
 
-    private fun countdownWhen(context: Context, paused: Boolean): Long {
-        if (paused) return System.currentTimeMillis()
-        return System.currentTimeMillis() + TimerStore.remainingSeconds(context) * 1000L
+    private fun applySessionChronometerCompat(
+        builder: NotificationCompat.Builder,
+        context: Context,
+        paused: Boolean,
+    ) {
+        if (paused) {
+            builder.setWhen(System.currentTimeMillis())
+            builder.setShowWhen(true)
+            builder.setUsesChronometer(false)
+            return
+        }
+        val end = TimerStore.endAtMillis(context)
+        if (end <= System.currentTimeMillis()) return
+        builder.setWhen(end)
+        builder.setShowWhen(false)
+        builder.setUsesChronometer(true)
+        builder.setChronometerCountDown(true)
     }
 
     private fun isSamsung(): Boolean =
@@ -369,7 +385,15 @@ object SessionNotificationBuilder {
         val label = TimerStore.ambientLabel(context)
         return when (TimerStore.ambientMode(context)) {
             AmbientMode.OFF -> "No ambient sound"
-            else -> label ?: "Ambient sound"
+            AmbientMode.FILE -> label ?: "Ambient track"
+            AmbientMode.FOLDER -> label ?: "Ambient folder"
         }
+    }
+
+    private fun minutesLeftLine(context: Context, paused: Boolean): String {
+        if (!TimerStore.isSessionActive(context)) return ambientLine(context)
+        if (TimerStore.formatRemainingMinutes(context) == "--") return ambientLine(context)
+        val left = TimerStore.minutesLeftPhrase(context)
+        return if (paused) "$left · paused" else left
     }
 }
