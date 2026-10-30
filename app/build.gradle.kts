@@ -12,8 +12,8 @@ android {
         applicationId = "com.pomodoro.timer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1.0-alpha"
     }
 
     buildFeatures {
@@ -27,6 +27,23 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    signingConfigs {
+        create("sideload") {
+            val home = System.getProperty("user.home") ?: ""
+            storeFile = file("$home/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+            enableV1Signing = true
+            enableV2Signing = true
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("sideload")
+        }
+    }
 }
 
 kotlin {
