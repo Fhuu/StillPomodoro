@@ -149,6 +149,16 @@ object TimerStore {
     fun youtubeVideoId(context: Context): String? =
         prefs(context).getString("youtube_video_id", null)?.takeIf { it.isNotBlank() }
 
+    fun youtubePlaybackError(context: Context): String? =
+        prefs(context).getString("youtube_playback_error", null)?.takeIf { it.isNotBlank() }
+
+    fun setYoutubePlaybackError(context: Context, message: String?) {
+        prefs(context).edit().apply {
+            if (message.isNullOrBlank()) remove("youtube_playback_error")
+            else putString("youtube_playback_error", message)
+        }.apply()
+    }
+
     fun ambientLabel(context: Context): String? = when (ambientMode(context)) {
         AmbientMode.YOUTUBE -> prefs(context).getString("youtube_title", null)
             ?: prefs(context).getString("ambient_label", null)
@@ -187,8 +197,10 @@ object TimerStore {
             .putString("ambient_mode", AmbientMode.YOUTUBE.name)
             .putString("youtube_video_id", videoId)
             .putString("youtube_title", title)
+            .remove("youtube_playback_error")
             .putString("ambient_label", title)
             .apply()
+        YoutubeAudioPlayer.prefetch(context, videoId)
     }
 
     fun clearYoutubeSelection(context: Context) {

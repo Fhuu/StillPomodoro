@@ -67,8 +67,29 @@ object YoutubePlaylist {
         entryThumbFile(app, videoId).delete()
         save(app, list)
         if (TimerStore.youtubeVideoId(app) == videoId) {
-            TimerStore.clearYoutubeSelection(app)
+            val next = list.firstOrNull()
+            if (next != null) TimerStore.setYoutubeSource(app, next.videoId, next.title)
+            else TimerStore.clearYoutubeSelection(app)
         }
+    }
+
+    /** Selected video for focus, or first playlist entry. */
+    fun ensureFocusSelection(context: Context): String? {
+        TimerStore.youtubeVideoId(context)?.let { return it }
+        val entry = entries(context).firstOrNull() ?: return null
+        TimerStore.setYoutubeSource(context, entry.videoId, entry.title)
+        return entry.videoId
+    }
+
+    fun titleFor(context: Context, videoId: String): String =
+        entries(context).find { it.videoId == videoId }?.title ?: "YouTube · $videoId"
+
+    fun nextEntry(context: Context, currentId: String): YoutubePlaylistEntry? {
+        val list = entries(context)
+        if (list.isEmpty()) return null
+        if (list.size == 1) return list.first()
+        val idx = list.indexOfFirst { it.videoId == currentId }.takeIf { it >= 0 } ?: -1
+        return list[(idx + 1) % list.size]
     }
 
     fun thumbBitmap(entry: YoutubePlaylistEntry): android.graphics.Bitmap? {
@@ -94,8 +115,18 @@ object YoutubePlaylist {
         if (prefs.getString(PREFS_KEY, null) != null) return
         val id = prefs.getString("youtube_video_id", null)?.takeIf { it.isNotBlank() } ?: return
         val app = context.applicationContext
-        val thumbPath = cacheThumbnail(app, id)
-        save(app, listOf(YoutubePlaylistEntry(id, displayTitle(id), canonicalLink(id), thumbPath)))
+        save(
+            app,
+            listOf(YoutubePlaylistEntry(id, displayTitle(id), canonicalLink(id), thumbPath = null)),
+        )
+        executor.execute { cacheThumbnail(app, id)?.let { path -> patchThumbPath(app, id, path) } }
+    }
+
+    private fun patchThumbPath(context: Context, videoId: String, thumbPath: String) {
+        val updated = entries(context).map {
+            if (it.videoId == videoId) it.copy(thumbPath = thumbPath) else it
+        }
+        save(context, updated)
     }
 
     private fun cacheThumbnail(context: Context, videoId: String): String? {

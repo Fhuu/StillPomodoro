@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit
 
 /** Minimal HTTP client for NewPipe Extractor (audio stream URLs only). */
 class YoutubeDownloader private constructor() : Downloader() {
-    private val client = OkHttpClient.Builder()
+    val client = OkHttpClient.Builder()
         .readTimeout(30, TimeUnit.SECONDS)
         .connectTimeout(15, TimeUnit.SECONDS)
         .build()
@@ -20,11 +20,17 @@ class YoutubeDownloader private constructor() : Downloader() {
     override fun execute(request: Request): Response {
         val url = request.url()
         val builder = okhttp3.Request.Builder().url(url)
+        var hasUserAgent = false
+        var hasReferer = false
         for ((key, values) in request.headers()) {
+            if (key.equals("User-Agent", ignoreCase = true)) hasUserAgent = true
+            if (key.equals("Referer", ignoreCase = true)) hasReferer = true
             for (value in values) {
                 builder.addHeader(key, value)
             }
         }
+        if (!hasUserAgent) builder.header("User-Agent", USER_AGENT)
+        if (!hasReferer) builder.header("Referer", "https://www.youtube.com/")
         val body = request.dataToSend()?.toRequestBody()
         builder.method(request.httpMethod(), body)
         val response = client.newCall(builder.build()).execute()
@@ -37,8 +43,12 @@ class YoutubeDownloader private constructor() : Downloader() {
     }
 
     companion object {
+        const val USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
         private val instance = YoutubeDownloader()
 
         fun get(): Downloader = instance
+
+        fun httpClient(): OkHttpClient = instance.client
     }
 }
