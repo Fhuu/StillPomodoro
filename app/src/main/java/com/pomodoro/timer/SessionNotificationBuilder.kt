@@ -387,6 +387,7 @@ object SessionNotificationBuilder {
             AmbientMode.OFF -> "No ambient sound"
             AmbientMode.LIBRARY -> label ?: "Music library"
             AmbientMode.YOUTUBE -> label ?: "YouTube"
+            AmbientMode.BUILT_IN -> label ?: "Built-in ambience"
         }
     }
 

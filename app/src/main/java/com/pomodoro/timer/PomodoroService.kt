@@ -43,6 +43,10 @@ class PomodoroService : Service() {
                         stopAll()
                     }
                 }
+
+                override fun onSkipToNext() {
+                    skipAmbientTrack()
+                }
             })
             isActive = true
         }
@@ -52,7 +56,7 @@ class PomodoroService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         if (action == ACTION_HOLD_PAUSE || action == ACTION_STOP || action == ACTION_REFRESH_NOTIFICATION ||
-            action == ACTION_SESSION_ALARM
+            action == ACTION_SESSION_ALARM || action == ACTION_SKIP_AMBIENT || action == ACTION_REFRESH_AMBIENT
         ) {
             if (TimerStore.isSessionActive(this) || action == ACTION_SESSION_ALARM) {
                 postSessionNotification(buildNotification())
@@ -62,6 +66,17 @@ class PomodoroService : Service() {
             ACTION_START_FOCUS -> startPhase(Phase.FOCUS, TimerStore.focusDurationSeconds(this))
             ACTION_START_BREAK -> startPhase(Phase.BREAK, TimerStore.breakMinutes(this) * 60)
             ACTION_HOLD_PAUSE -> if (TimerStore.isSessionActive(this)) holdPause()
+            ACTION_SKIP_AMBIENT -> skipAmbientTrack()
+            ACTION_REFRESH_AMBIENT -> {
+                if (TimerStore.isSessionActive(this)) {
+                    if (TimerStore.phase(this) == Phase.FOCUS) {
+                        ambient.refreshFocusAmbient()
+                    }
+                    syncMediaSession()
+                    refreshSessionUi()
+                }
+                return START_STICKY
+            }
             ACTION_SESSION_ALARM -> onSessionAlarm()
             ACTION_REFRESH_NOTIFICATION -> {
                 if (TimerStore.isSessionActive(this)) updateNotification()
@@ -81,13 +96,13 @@ class PomodoroService : Service() {
         TimerStore.setRunningPhaseTotalSeconds(this, durationSeconds)
         TimerStore.setEndAtMillis(this, System.currentTimeMillis() + durationSeconds * 1000L)
         mediaSession?.isActive = true
+        val notification = buildNotification()
+        syncMediaSession()
+        postSessionNotification(notification)
         ambient.sync(phase)
         if (phase == Phase.FOCUS) {
             AmbientArt.loadAmbientSelection(this) { updateNotification() }
         }
-        val notification = buildNotification()
-        syncMediaSession()
-        postSessionNotification(notification)
         SessionNotificationBuilder.logPromotionState(this, notification)
         beginSessionScheduling()
         IslandOverlay.ensureVisible(this)
@@ -241,12 +256,36 @@ class PomodoroService : Service() {
         }
     }
 
+    private fun skipAmbientTrack() {
+        if (TimerStore.phase(this) != Phase.FOCUS) return
+        when (TimerStore.ambientMode(this)) {
+            AmbientMode.LIBRARY -> {
+                if (!TimerStore.hasDeviceMusic(this)) return
+                ambient.skipLibraryTrack()
+            }
+            AmbientMode.YOUTUBE -> {
+                if (YoutubePlaylist.entries(this).isEmpty()) return
+                ambient.skipYoutubeTrack()
+            }
+            AmbientMode.OFF, AmbientMode.BUILT_IN -> return
+        }
+        refreshSessionUi()
+    }
+
     private fun syncMediaSession() {
         val session = mediaSession ?: return
         val paused = TimerStore.isSessionPaused(this)
-        val actions = PlaybackStateCompat.ACTION_PAUSE or
+        var actions = PlaybackStateCompat.ACTION_PAUSE or
             PlaybackStateCompat.ACTION_PLAY or
             PlaybackStateCompat.ACTION_STOP
+        if (TimerStore.phase(this) == Phase.FOCUS) {
+            val canSkip = when (TimerStore.ambientMode(this)) {
+                AmbientMode.LIBRARY -> TimerStore.canSkipDeviceTracks(this)
+                AmbientMode.YOUTUBE -> YoutubePlaylist.entries(this).isNotEmpty()
+                AmbientMode.OFF, AmbientMode.BUILT_IN -> false
+            }
+            if (canSkip) actions = actions or PlaybackStateCompat.ACTION_SKIP_TO_NEXT
+        }
         val state = if (paused) PlaybackStateCompat.STATE_PAUSED else PlaybackStateCompat.STATE_PLAYING
         session.setPlaybackState(
             PlaybackStateCompat.Builder()
@@ -289,8 +328,10 @@ class PomodoroService : Service() {
         const val ACTION_START_BREAK = "start_break"
         const val ACTION_HOLD_PAUSE = "hold_pause"
         const val ACTION_REFRESH_NOTIFICATION = "refresh_notification"
+        const val ACTION_REFRESH_AMBIENT = "refresh_ambient"
         const val ACTION_SESSION_ALARM = "session_alarm"
         const val ACTION_STOP = "stop"
+        const val ACTION_SKIP_AMBIENT = "skip_ambient"
         private const val CHANNEL_ID = "pomodoro_session_v2"
         private const val NOTIFICATION_ID = 1
 
@@ -309,6 +350,26 @@ class PomodoroService : Service() {
         fun stop(context: Context) = context.startForegroundService(
             Intent(context, PomodoroService::class.java).setAction(ACTION_STOP)
         )
+
+        fun skipAmbient(context: Context) {
+            if (!TimerStore.isSessionActive(context)) return
+            if (TimerStore.phase(context) != Phase.FOCUS) return
+            when (TimerStore.ambientMode(context)) {
+                AmbientMode.LIBRARY -> if (!TimerStore.hasDeviceMusic(context)) return
+                AmbientMode.YOUTUBE -> if (YoutubePlaylist.entries(context).isEmpty()) return
+                AmbientMode.OFF, AmbientMode.BUILT_IN -> return
+            }
+            context.startForegroundService(
+                Intent(context, PomodoroService::class.java).setAction(ACTION_SKIP_AMBIENT),
+            )
+        }
+
+        fun refreshAmbient(context: Context) {
+            if (!TimerStore.isSessionActive(context) || TimerStore.phase(context) != Phase.FOCUS) return
+            context.startForegroundService(
+                Intent(context, PomodoroService::class.java).setAction(ACTION_REFRESH_AMBIENT),
+            )
+        }
 
         fun refreshNotification(context: Context) {
             if (!TimerStore.isSessionActive(context)) return

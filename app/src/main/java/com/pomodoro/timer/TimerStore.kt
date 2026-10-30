@@ -4,9 +4,11 @@ import android.content.Context
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+import android.net.Uri
+
 enum class Phase { IDLE, FOCUS, BREAK }
 
-enum class AmbientMode { OFF, LIBRARY, YOUTUBE }
+enum class AmbientMode { OFF, LIBRARY, YOUTUBE, BUILT_IN }
 
 data class SessionControlFingerprint(val phase: Phase, val paused: Boolean, val endAtMillis: Long)
 
@@ -141,7 +143,37 @@ object TimerStore {
 
     fun libraryUri(context: Context): String? =
         prefs(context).getString("music_library_uri", null)?.takeIf { it.isNotBlank() }
-            ?: prefs(context).getString("ambient_uri", null)?.takeIf { it.isNotBlank() }
+
+    fun builtInAmbientSounds(context: Context): Set<BuiltInAmbientSound> {
+        val names = prefs(context).getStringSet("built_in_ambient_sounds", emptySet()).orEmpty()
+        return BuiltInAmbientSound.entries.filter { it.name in names }.toSet()
+    }
+
+    fun setBuiltInAmbientSounds(context: Context, sounds: Set<BuiltInAmbientSound>) {
+        prefs(context).edit()
+            .putStringSet("built_in_ambient_sounds", sounds.map { it.name }.toSet())
+            .putString("ambient_mode", if (sounds.isEmpty()) AmbientMode.OFF.name else AmbientMode.BUILT_IN.name)
+            .apply()
+    }
+
+    fun applyBuiltInSource(context: Context) {
+        val sounds = builtInAmbientSounds(context).ifEmpty { setOf(BuiltInAmbientSound.OCEAN_WAVES) }
+        setBuiltInAmbientSounds(context, sounds)
+    }
+
+    fun singleTrackUri(context: Context): String? =
+        prefs(context).getString("single_track_uri", null)?.takeIf { it.isNotBlank() }
+
+    fun libraryIsFolder(context: Context): Boolean =
+        prefs(context).getBoolean("library_is_folder", prefs(context).contains("music_library_uri"))
+
+    fun hasDeviceMusic(context: Context): Boolean =
+        libraryUri(context) != null || singleTrackUri(context) != null
+
+    fun canSkipDeviceTracks(context: Context): Boolean =
+        ambientMode(context) == AmbientMode.LIBRARY &&
+            libraryUri(context) != null &&
+            singleTrackUri(context) == null
 
     fun selectedTrackUri(context: Context): String? =
         prefs(context).getString("selected_track_uri", null)?.takeIf { it.isNotBlank() }
@@ -160,10 +192,11 @@ object TimerStore {
     }
 
     fun ambientLabel(context: Context): String? = when (ambientMode(context)) {
+        AmbientMode.BUILT_IN -> builtInAmbientSounds(context).joinToString { it.title }
         AmbientMode.YOUTUBE -> prefs(context).getString("youtube_title", null)
-            ?: prefs(context).getString("ambient_label", null)
         AmbientMode.LIBRARY -> prefs(context).getString("selected_track_label", null)
-            ?: prefs(context).getString("ambient_label", null)
+            ?: prefs(context).getString("single_track_label", null)
+            ?: prefs(context).getString("music_folder_label", null)
         AmbientMode.OFF -> null
     }
 
@@ -180,8 +213,43 @@ object TimerStore {
         prefs(context).edit()
             .putString("ambient_mode", AmbientMode.LIBRARY.name)
             .putString("music_library_uri", treeUri)
-            .putString("ambient_label", label)
+            .putString("music_folder_label", label)
+            .putBoolean("library_is_folder", true)
+            .remove("single_track_uri")
+            .remove("single_track_label")
+            .remove("selected_track_uri")
+            .remove("selected_track_label")
+            .remove("ambient_uri")
             .apply()
+    }
+
+    fun setSingleTrackFile(context: Context, fileUri: String, title: String) {
+        prefs(context).edit()
+            .putString("ambient_mode", AmbientMode.LIBRARY.name)
+            .putString("single_track_uri", fileUri)
+            .putString("single_track_label", title)
+            .putString("selected_track_uri", fileUri)
+            .putString("selected_track_label", title)
+            .putBoolean("library_is_folder", false)
+            .remove("music_library_uri")
+            .remove("music_folder_label")
+            .remove("ambient_uri")
+            .apply()
+    }
+
+    /** Switch active source to on-device folder or single file (not YouTube). */
+    fun applyDeviceSource(context: Context) {
+        val single = singleTrackUri(context)
+        if (single != null) {
+            val title = prefs(context).getString("single_track_label", null) ?: "Track"
+            setSingleTrackFile(context, single, title)
+            return
+        }
+        val folder = libraryUri(context) ?: return
+        val label = prefs(context).getString("music_folder_label", null)
+            ?: Uri.parse(folder).lastPathSegment?.substringAfterLast(':')
+            ?: "Music"
+        setMusicLibrary(context, folder, label)
     }
 
     fun setSelectedTrack(context: Context, uri: String, title: String) {
@@ -198,7 +266,6 @@ object TimerStore {
             .putString("youtube_video_id", videoId)
             .putString("youtube_title", title)
             .remove("youtube_playback_error")
-            .putString("ambient_label", title)
             .apply()
         YoutubeAudioPlayer.prefetch(context, videoId)
     }
@@ -211,7 +278,6 @@ object TimerStore {
         if (ambientMode(context) == AmbientMode.YOUTUBE) {
             prefs(context).edit()
                 .putString("ambient_mode", AmbientMode.OFF.name)
-                .remove("ambient_label")
                 .apply()
         }
     }
@@ -219,13 +285,17 @@ object TimerStore {
     fun clearAmbient(context: Context) {
         prefs(context).edit()
             .putString("ambient_mode", AmbientMode.OFF.name)
+            .remove("built_in_ambient_sounds")
             .remove("music_library_uri")
+            .remove("music_folder_label")
+            .remove("single_track_uri")
+            .remove("single_track_label")
             .remove("ambient_uri")
-            .remove("ambient_label")
             .remove("selected_track_uri")
             .remove("selected_track_label")
             .remove("youtube_video_id")
             .remove("youtube_title")
+            .remove("library_is_folder")
             .apply()
     }
 

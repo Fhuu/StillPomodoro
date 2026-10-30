@@ -28,6 +28,27 @@ class AmbientPlayer(private val context: Context) {
     private var monitoring = false
     private var ignoreRouteChangesUntil = 0L
     private var focusRequest: AudioFocusRequest? = null
+    private var refreshFocusOnResume = false
+    private val builtInOutput = BuiltInAudioOutput(appContext) { updateBuiltInMixGains(immediate = true) }
+    private val boatHum = BoatHumPlayer(appContext, output = builtInOutput) { onBuiltInStopped() }
+    private val breakAmbience = BreakAmbiencePlayer(appContext, output = builtInOutput) {
+        onBuiltInStopped()
+    }
+
+    private fun onBuiltInStopped() {
+        if (!breakAmbience.isActive && !boatHum.isActive) builtInOutput.release()
+        updateBuiltInMixGains()
+        val youtubeFocus = TimerStore.phase(appContext) == Phase.FOCUS &&
+            TimerStore.ambientMode(appContext) == AmbientMode.YOUTUBE &&
+            TimerStore.isSessionActive(appContext)
+        if (player == null && crossfadeOut == null && !breakAmbience.isActive && !boatHum.isActive && !youtubeFocus) stopSilent()
+    }
+
+    private fun updateBuiltInMixGains(immediate: Boolean = false) {
+        val gain = if (breakAmbience.isActive && boatHum.isActive) 0.50f else 1f
+        breakAmbience.setMixGain(gain, immediate)
+        boatHum.setMixGain(gain * builtInOutput.boatCompensation, immediate)
+    }
 
     private val privateOutputTypes = setOf(
         AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
@@ -56,20 +77,45 @@ class AmbientPlayer(private val context: Context) {
     }
 
     fun sync(phase: Phase) {
+        refreshFocusOnResume = false
+        val builtInFocus = phase == Phase.FOCUS && TimerStore.ambientMode(context) == AmbientMode.BUILT_IN
+        if (phase != Phase.BREAK && !builtInFocus) {
+            breakAmbience.stop()
+            boatHum.stop()
+        }
         when (phase) {
             Phase.IDLE -> {
                 YoutubeAudioPlayer.stop()
                 fadeOutStop()
             }
             Phase.BREAK -> {
-                YoutubeAudioPlayer.stop()
-                crossfadeTo(breakOceanUri(), loop = true, loadArt = false)
+                startBuiltInAmbience(setOf(BuiltInAmbientSound.OCEAN_WAVES))
             }
             Phase.FOCUS -> syncFocusAmbient()
         }
     }
 
+    private fun startBuiltInAmbience(sounds: Set<BuiltInAmbientSound>) {
+        YoutubeAudioPlayer.stop()
+        fadeOutStop(stopBuiltIn = false)
+        if (!TimerStore.isSessionActive(appContext)) return
+        // Built-in ambience is background audio and must coexist with the user's music app.
+        abandonFocus()
+        builtInOutput.activate()
+        TimerStore.setNowPlayingUri(appContext, null)
+        AmbientArt.clear()
+        wasPrivateOutput = hasPrivateOutput()
+        ignoreRouteChangesUntil = System.currentTimeMillis() + 1200L
+        startMonitoring()
+        if (BuiltInAmbientSound.OCEAN_WAVES in sounds) breakAmbience.start() else breakAmbience.stop()
+        if (BuiltInAmbientSound.BOAT_HUM in sounds) boatHum.start() else boatHum.stop()
+        updateBuiltInMixGains()
+    }
+
     fun release() {
+        boatHum.stop(immediate = true)
+        breakAmbience.stop(immediate = true)
+        builtInOutput.release()
         fadeOutStop()
         YoutubeAudioPlayer.release()
     }
@@ -79,6 +125,10 @@ class AmbientPlayer(private val context: Context) {
 
     /** Hard stop — task removed / must not keep playing after stop. */
     fun stopImmediate() {
+        refreshFocusOnResume = false
+        boatHum.stop(immediate = true)
+        breakAmbience.stop(immediate = true)
+        builtInOutput.release()
         cancelCrossfade()
         YoutubeAudioPlayer.stop()
         runCatching {
@@ -93,6 +143,8 @@ class AmbientPlayer(private val context: Context) {
 
     /** Stops ambient while the timer is on hold (break waves fade out; focus track keeps position). */
     fun pauseForSessionHold() {
+        boatHum.stop(immediate = true)
+        breakAmbience.stop(immediate = true)
         cancelCrossfade()
         runCatching { crossfadeOut?.stop() }
         runCatching { crossfadeOut?.release() }
@@ -105,9 +157,21 @@ class AmbientPlayer(private val context: Context) {
         YoutubeAudioPlayer.pause()
     }
 
+    fun refreshFocusAmbient() {
+        if (TimerStore.isSessionPaused(appContext)) {
+            refreshFocusOnResume = true
+        } else {
+            sync(Phase.FOCUS)
+        }
+    }
+
     fun resumeFromSessionHold(phase: Phase) {
         if (phase == Phase.BREAK) {
             sync(Phase.BREAK)
+            return
+        }
+        if (refreshFocusOnResume) {
+            sync(phase)
             return
         }
         if (TimerStore.ambientMode(context) == AmbientMode.YOUTUBE) {
@@ -126,8 +190,43 @@ class AmbientPlayer(private val context: Context) {
         sync(phase)
     }
 
+    /** Skip to another random track from the music folder (focus + library only). */
+    fun skipLibraryTrack() {
+        if (TimerStore.phase(appContext) != Phase.FOCUS) return
+        if (TimerStore.ambientMode(context) != AmbientMode.LIBRARY) return
+        val files = folderFiles ?: libraryTrackUris()?.also { folderFiles = it } ?: return
+        if (files.isEmpty()) return
+        val current = TimerStore.nowPlayingUri(appContext)?.let { Uri.parse(it) }
+        playNextFromFolder(files, avoid = current)
+    }
+
+    fun skipYoutubeTrack() {
+        if (TimerStore.phase(appContext) != Phase.FOCUS) return
+        if (TimerStore.ambientMode(context) != AmbientMode.YOUTUBE) return
+        val current = TimerStore.youtubeVideoId(context) ?: return
+        val next = YoutubePlaylist.nextEntry(context, current) ?: return
+        TimerStore.setYoutubeSource(context, next.videoId, next.title)
+        AmbientArt.notifyMetadataChanged()
+        requestFocus()
+        startMonitoring()
+        YoutubeAudioPlayer.play(context, next.videoId)
+        AmbientArt.loadYoutubeThumbnail(context, next.videoId) {
+            IslandOverlay.reloadArt(appContext)
+            PomodoroService.refreshNotification(appContext)
+        }
+    }
+
     private fun syncFocusAmbient() {
         when (TimerStore.ambientMode(context)) {
+            AmbientMode.BUILT_IN -> {
+                val sounds = TimerStore.builtInAmbientSounds(context)
+                if (sounds.isNotEmpty()) {
+                    startBuiltInAmbience(sounds)
+                } else {
+                    YoutubeAudioPlayer.stop()
+                    fadeOutStop()
+                }
+            }
             AmbientMode.OFF -> {
                 YoutubeAudioPlayer.stop()
                 fadeOutStop()
@@ -137,38 +236,35 @@ class AmbientPlayer(private val context: Context) {
                 syncLibraryAmbient()
             }
             AmbientMode.YOUTUBE -> {
-                fadeOutStop()
-                val id = TimerStore.youtubeVideoId(context) ?: return
+                stopLocalPlayerOnly()
+                val id = YoutubePlaylist.ensureFocusSelection(context)
+                if (id == null) {
+                    TimerStore.setYoutubePlaybackError(
+                        context,
+                        "Add a video on the YouTube tab and tap a row to select it",
+                    )
+                    return
+                }
                 requestFocus()
                 startMonitoring()
+                wasPrivateOutput = hasPrivateOutput()
+                ignoreRouteChangesUntil = System.currentTimeMillis() + 1200L
                 YoutubeAudioPlayer.play(context, id)
             }
         }
     }
 
     private fun syncLibraryAmbient() {
-        val tree = TimerStore.libraryUri(context)?.let { Uri.parse(it) }
-        val tracks = tree?.let { AmbientLibrary.listTracks(context, it).map { t -> t.uri } }.orEmpty()
-        val pick = TimerStore.selectedTrackUri(context)?.let { Uri.parse(it) }
-        val start = when {
-            pick != null && tracks.contains(pick) -> pick
-            pick != null && tracks.isEmpty() -> pick
-            tracks.isNotEmpty() -> tracks.random()
-            else -> return fadeOutStop()
-        }
-        if (pick == null || (tracks.isNotEmpty() && pick !in tracks)) {
-            TimerStore.setSelectedTrack(
-                context,
-                start.toString(),
-                AmbientLibrary.displayName(context, start),
-            )
-        }
-        val playlist = if (tracks.size > 1) tracks else null
-        crossfadeTo(start, loop = tracks.size <= 1, loadArt = true, folderPlaylist = playlist)
+        val tracks = libraryTrackUris() ?: return fadeOutStop()
+        folderFiles = tracks
+        playNextFromFolder(tracks, avoid = null)
     }
 
-    private fun breakOceanUri(): Uri =
-        Uri.parse("android.resource://${appContext.packageName}/${R.raw.break_ocean_waves}")
+    private fun libraryTrackUris(): List<Uri>? {
+        TimerStore.singleTrackUri(context)?.let { return listOf(Uri.parse(it)) }
+        val tree = TimerStore.libraryUri(context)?.let { Uri.parse(it) } ?: return null
+        return AmbientLibrary.listTracks(context, tree).map { it.uri }.takeIf { it.isNotEmpty() }
+    }
 
     private fun crossfadeTo(
         uri: Uri?,
@@ -182,13 +278,14 @@ class AmbientPlayer(private val context: Context) {
         }
         cancelCrossfade()
         requestFocus()
+        if (loadArt) publishTrackUi(uri)
         val incoming = try {
             MediaPlayer().apply {
                 setAudioAttributes(attrs)
-                setDataSource(appContext, uri)
+                bindDataSource(uri)
                 isLooping = loop
                 if (folderPlaylist != null) {
-                    setOnCompletionListener { playNextFromFolder(folderPlaylist) }
+                    setOnCompletionListener { playNextFromFolder(folderPlaylist, avoid = uri) }
                 }
                 prepare()
             }
@@ -241,10 +338,15 @@ class AmbientPlayer(private val context: Context) {
         mainHandler.post(tick)
     }
 
-    private fun fadeOutStop() {
+    private fun fadeOutStop(stopBuiltIn: Boolean = true) {
+        if (stopBuiltIn) {
+            breakAmbience.stop()
+            boatHum.stop()
+        }
         cancelCrossfade()
         val outgoing = player ?: return stopSilent()
         player = null
+        crossfadeOut = outgoing
         var step = 0
         val stepMs = CROSSFADE_MS / FADE_STEPS
         val tick = object : Runnable {
@@ -254,6 +356,7 @@ class AmbientPlayer(private val context: Context) {
                 if (outgoing.isPlaying) outgoing.setVolume(t, t)
                 if (step >= FADE_STEPS) {
                     outgoing.release()
+                    crossfadeOut = null
                     stopSilent()
                 } else {
                     mainHandler.postDelayed(this, stepMs)
@@ -264,14 +367,16 @@ class AmbientPlayer(private val context: Context) {
     }
 
     private fun stopSilent() {
-        stopMonitoring()
-        abandonFocus()
+        if (!breakAmbience.isActive && !boatHum.isActive) {
+            stopMonitoring()
+            abandonFocus()
+            wasPrivateOutput = false
+        }
         crossfadeOut?.release()
         crossfadeOut = null
         player?.release()
         player = null
         folderFiles = null
-        wasPrivateOutput = false
         TimerStore.setNowPlayingUri(appContext, null)
         AmbientArt.clear()
     }
@@ -282,8 +387,49 @@ class AmbientPlayer(private val context: Context) {
         crossfadeOut = null
     }
 
-    private fun playNextFromFolder(files: List<Uri>) {
-        crossfadeTo(files[Random.nextInt(files.size)], loop = false, loadArt = true, folderPlaylist = files)
+    private fun stopLocalPlayerOnly() {
+        cancelCrossfade()
+        runCatching {
+            player?.stop()
+            player?.release()
+        }
+        player = null
+        runCatching { crossfadeOut?.release() }
+        crossfadeOut = null
+    }
+
+    private fun playNextFromFolder(files: List<Uri>, avoid: Uri?) {
+        val pool = if (avoid != null && files.size > 1) {
+            files.filter { it.toString() != avoid.toString() }
+        } else {
+            files
+        }
+        if (pool.isEmpty()) return
+        val next = pool[Random.nextInt(pool.size)]
+        val playlist = if (files.size > 1) files else null
+        crossfadeTo(next, loop = files.size <= 1, loadArt = true, folderPlaylist = playlist)
+    }
+
+    private fun MediaPlayer.bindDataSource(uri: Uri) {
+        if (uri.scheme == "content") {
+            val fd = appContext.contentResolver.openFileDescriptor(uri, "r")
+                ?: error("Cannot open $uri")
+            setDataSource(fd.fileDescriptor)
+            fd.close()
+        } else {
+            setDataSource(appContext, uri)
+        }
+    }
+
+    private fun publishTrackUi(uri: Uri) {
+        val title = uri.lastPathSegment?.substringAfterLast('/') ?: "Track"
+        TimerStore.setSelectedTrack(appContext, uri.toString(), title)
+        TimerStore.setNowPlayingUri(appContext, uri.toString())
+        AmbientArt.prepareTrackChange(uri)
+        AmbientArt.load(appContext, uri) {
+            IslandOverlay.reloadArt(appContext)
+            PomodoroService.refreshNotification(appContext)
+        }
     }
 
     private fun onPlaybackStarted(uri: Uri, loadArt: Boolean) {
@@ -291,13 +437,7 @@ class AmbientPlayer(private val context: Context) {
             stopImmediate()
             return
         }
-        if (loadArt) {
-            TimerStore.setNowPlayingUri(appContext, uri.toString())
-            AmbientArt.load(appContext, uri) {
-                IslandOverlay.reloadArt(appContext)
-                PomodoroService.refreshNotification(appContext)
-            }
-        } else {
+        if (!loadArt) {
             TimerStore.setNowPlayingUri(appContext, null)
             AmbientArt.clear()
         }
@@ -309,7 +449,7 @@ class AmbientPlayer(private val context: Context) {
     private fun onRouteMaybeChanged() {
         mainHandler.post {
             if (System.currentTimeMillis() < ignoreRouteChangesUntil) return@post
-            if (player?.isPlaying != true) return@post
+            if (player?.isPlaying != true && !breakAmbience.isActive && !boatHum.isActive) return@post
             val privateOut = hasPrivateOutput()
             if (wasPrivateOutput && !privateOut) {
                 silenceForPublicOutput()
@@ -321,6 +461,12 @@ class AmbientPlayer(private val context: Context) {
 
     private fun silenceForPublicOutput() {
         YoutubeAudioPlayer.stop()
+        if (breakAmbience.isActive || boatHum.isActive) {
+            breakAmbience.stop(immediate = true)
+            boatHum.stop(immediate = true)
+            stopSilent()
+            return
+        }
         if (player?.isPlaying == true) fadeOutStop()
     }
 

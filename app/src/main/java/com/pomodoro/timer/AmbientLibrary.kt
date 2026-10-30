@@ -8,12 +8,12 @@ import androidx.documentfile.provider.DocumentFile
 data class AmbientTrack(val uri: Uri, val title: String)
 
 object AmbientLibrary {
-    fun listTracks(context: Context, treeUri: Uri): List<AmbientTrack> {
+    fun listTracks(context: Context, treeUri: Uri): List<AmbientTrack> = runCatching {
         val root = DocumentFile.fromTreeUri(context.applicationContext, treeUri) ?: return emptyList()
-        return collectAudio(root)
+        collectAudio(root)
             .map { uri -> AmbientTrack(uri, displayName(context, uri)) }
             .sortedBy { it.title.lowercase() }
-    }
+    }.getOrElse { emptyList() }
 
     fun displayName(context: Context, uri: Uri): String {
         context.contentResolver.query(uri, null, null, null, null)?.use { c ->
@@ -27,7 +27,8 @@ object AmbientLibrary {
 
     private fun collectAudio(dir: DocumentFile): List<Uri> {
         val out = mutableListOf<Uri>()
-        for (file in dir.listFiles()) {
+        val files = runCatching { dir.listFiles() }.getOrNull() ?: return out
+        for (file in files) {
             when {
                 file.isDirectory -> out += collectAudio(file)
                 file.isFile && isAudio(file) -> out += file.uri

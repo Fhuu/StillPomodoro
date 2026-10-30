@@ -8,18 +8,40 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 object AmbientArt {
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
+    private val generation = AtomicInteger(0)
     private var cachedUri: String? = null
     private var cachedBitmap: Bitmap? = null
 
+    fun artGeneration(): Int = generation.get()
+
     fun currentBitmap(): Bitmap? = cachedBitmap
+
+    fun prepareTrackChange(uri: Uri) {
+        val key = uri.toString()
+        if (key == cachedUri && cachedBitmap != null) return
+        cachedUri = null
+        cachedBitmap = null
+        generation.incrementAndGet()
+    }
+
+    fun notifyMetadataChanged() {
+        generation.incrementAndGet()
+    }
 
     fun clear() {
         cachedUri = null
         cachedBitmap = null
+        generation.incrementAndGet()
+    }
+
+    fun reloadSelection(context: Context, onLoaded: ((Bitmap?) -> Unit)? = null) {
+        clear()
+        loadAmbientSelection(context, onLoaded)
     }
 
     fun load(context: Context, uri: Uri, onLoaded: ((Bitmap?) -> Unit)? = null) {
@@ -34,6 +56,7 @@ object AmbientArt {
             main.post {
                 cachedBitmap = bitmap
                 cachedUri = if (bitmap != null) key else null
+                generation.incrementAndGet()
                 onLoaded?.invoke(cachedBitmap)
             }
         }
@@ -43,6 +66,7 @@ object AmbientArt {
         when (TimerStore.ambientMode(context)) {
             AmbientMode.LIBRARY -> {
                 val uri = TimerStore.selectedTrackUri(context)
+                    ?: TimerStore.singleTrackUri(context)
                     ?: TimerStore.nowPlayingUri(context)
                 if (uri != null) load(context, Uri.parse(uri), onLoaded)
                 else {
@@ -56,6 +80,7 @@ object AmbientArt {
                     YoutubePlaylist.thumbBitmap(context, id)?.let { bitmap ->
                         cachedBitmap = bitmap
                         cachedUri = "yt:$id"
+                        generation.incrementAndGet()
                         onLoaded?.invoke(bitmap)
                         return
                     }
@@ -65,7 +90,7 @@ object AmbientArt {
                     onLoaded?.invoke(null)
                 }
             }
-            AmbientMode.OFF -> {
+            AmbientMode.OFF, AmbientMode.BUILT_IN -> {
                 clear()
                 onLoaded?.invoke(null)
             }
@@ -88,6 +113,7 @@ object AmbientArt {
             main.post {
                 cachedBitmap = bitmap
                 cachedUri = if (bitmap != null) key else null
+                generation.incrementAndGet()
                 onLoaded?.invoke(cachedBitmap)
             }
         }

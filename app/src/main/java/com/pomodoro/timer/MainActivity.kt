@@ -94,18 +94,33 @@ fun PomodoroApp() {
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             var last = TimerStore.sessionControlFingerprint(context)
+            var lastArt = AmbientArt.artGeneration()
+            var lastLabel = TimerStore.ambientLabel(context)
             while (true) {
-                delay(400)
+                delay(150)
                 val cur = TimerStore.sessionControlFingerprint(context)
                 if (cur != last) {
                     last = cur
                     storeSync++
                 }
+                val label = TimerStore.ambientLabel(context)
+                if (label != lastLabel) {
+                    lastLabel = label
+                    ambientLabel = label
+                }
+                val artGen = AmbientArt.artGeneration()
+                if (artGen != lastArt) {
+                    lastArt = artGen
+                    AmbientArt.loadAmbientSelection(context) { ambientArt = it }
+                    ambientLabel = TimerStore.ambientLabel(context)
+                    lastLabel = ambientLabel
+                }
             }
         }
     }
 
-    LaunchedEffect(ambientLabel) {
+    LaunchedEffect(storeSync) {
+        ambientLabel = TimerStore.ambientLabel(context)
         AmbientArt.loadAmbientSelection(context) { ambientArt = it }
     }
 
@@ -214,6 +229,22 @@ fun PomodoroApp() {
                 ) {
                     Text(if (TimerStore.isSessionPaused(context)) "Resume" else "Pause")
                 }
+                val canSkipAmbient = TimerStore.phase(context) == Phase.FOCUS && when (TimerStore.ambientMode(context)) {
+                    AmbientMode.LIBRARY -> TimerStore.canSkipDeviceTracks(context)
+                    AmbientMode.YOUTUBE -> YoutubePlaylist.entries(context).isNotEmpty()
+                    AmbientMode.OFF, AmbientMode.BUILT_IN -> false
+                }
+                if (canSkipAmbient) {
+                    OutlinedButton(
+                        onClick = {
+                            PomodoroService.skipAmbient(context)
+                            ambientLabel = TimerStore.ambientLabel(context)
+                            storeSync++
+                        },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = SoftCardShape,
+                    ) { Text("Next track") }
+                }
             }
 
             Spacer(Modifier.height(16.dp))
@@ -242,7 +273,10 @@ fun PomodoroApp() {
                         ambientLabel ?: "None selected",
                         style = MaterialTheme.typography.bodySmall
                     )
-                    AmbientPickers(onChanged = { ambientLabel = TimerStore.ambientLabel(context) })
+                    AmbientPickers(onChanged = {
+                        ambientLabel = TimerStore.ambientLabel(context)
+                        AmbientArt.loadAmbientSelection(context) { ambientArt = it }
+                    })
                 }
             }
         }
