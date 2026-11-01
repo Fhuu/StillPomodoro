@@ -27,7 +27,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import com.pomodoro.timer.ui.AppColors
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -42,6 +41,7 @@ fun SessionKnob(
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
+    val colors = MaterialTheme.colorScheme
     val clamped = snapSeconds(focusSeconds)
     var dragAngle by remember { mutableFloatStateOf(secondsToAngle(clamped)) }
     var lastSnapped by remember { mutableIntStateOf(clamped) }
@@ -84,7 +84,7 @@ fun SessionKnob(
             val sweep = (clamped.toFloat() / KNOB_MAX_SECONDS) * 360f
 
             drawArc(
-                color = AppColors.CreamDeep,
+                color = colors.surfaceVariant,
                 startAngle = -90f,
                 sweepAngle = 360f,
                 useCenter = false,
@@ -94,7 +94,7 @@ fun SessionKnob(
             )
             if (sweep > 0f) {
                 drawArc(
-                    color = AppColors.Terracotta,
+                    color = colors.primary,
                     startAngle = -90f,
                     sweepAngle = sweep,
                     useCenter = false,
@@ -109,7 +109,7 @@ fun SessionKnob(
             val cy = size.height / 2f
             val knobR = r * 0.72f
             drawCircle(
-                color = AppColors.Ink,
+                color = colors.tertiary,
                 radius = 14.dp.toPx(),
                 center = Offset(
                     cx + knobR * cos(rad).toFloat(),

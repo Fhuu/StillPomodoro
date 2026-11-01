@@ -4,6 +4,7 @@ import com.pomodoro.island.IslandOverlay
 import com.pomodoro.timer.AppPermissions
 import com.pomodoro.timer.SessionNotificationBuilder
 import com.pomodoro.timer.TimerStore
+import com.pomodoro.sound.QuickSoundsStore
 
 import android.content.Intent
 import android.net.Uri
@@ -29,6 +30,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,7 +44,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import com.pomodoro.timer.ui.AppColors
 import com.pomodoro.timer.ui.SoftCardShape
 import kotlin.math.roundToInt
 
@@ -52,6 +53,8 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
     val context = LocalContext.current
     val items = AppPermissions.checklist(context)
     val allOk = AppPermissions.allRequiredGranted(context)
+    var cyberpunkPanel by remember(open) { mutableStateOf(QuickSoundsStore.cyberpunkPanel(context)) }
+    var blurredPanel by remember(open) { mutableStateOf(QuickSoundsStore.blurredPanel(context)) }
     var islandStyle by remember(open) {
         mutableStateOf(TimerStore.islandCompactStyle(context))
     }
@@ -107,7 +110,7 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
     }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = SoftCardShape, color = AppColors.Cream) {
+        Surface(shape = SoftCardShape, color = MaterialTheme.colorScheme.background) {
             Column(
                 Modifier
                     .padding(22.dp)
@@ -116,6 +119,23 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
             ) {
                 Text("Settings", style = MaterialTheme.typography.titleLarge)
                 UpdateSection()
+                Text("Quick sound panel", style = MaterialTheme.typography.labelLarge)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Cyberpunk styling", modifier = Modifier.weight(1f))
+                    Switch(checked = cyberpunkPanel, onCheckedChange = {
+                        cyberpunkPanel = it
+                        QuickSoundsStore.setCyberpunkPanel(context, it)
+                    })
+                }
+                Text("Off uses the system theme. Both follow light/dark mode.", style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Blurred background", modifier = Modifier.weight(1f))
+                    Switch(checked = blurredPanel, onCheckedChange = {
+                        blurredPanel = it
+                        QuickSoundsStore.setBlurredPanel(context, it)
+                    })
+                }
+                Text("Off uses an opaque background. Blur depends on device support.", style = MaterialTheme.typography.bodySmall)
                 Text("Permissions", style = MaterialTheme.typography.labelLarge)
                 items.forEach { item ->
                     Row(
@@ -126,7 +146,7 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
                         Text(item.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                         Text(
                             if (item.granted) "OK" else "Needed",
-                            color = if (item.granted) AppColors.Sage else AppColors.Terracotta,
+                            color = if (item.granted) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.labelLarge
                         )
                     }

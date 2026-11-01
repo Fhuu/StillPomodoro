@@ -3,6 +3,21 @@
 Versions use `MAJOR.MINOR.PATCH` with an `-alpha` suffix for preview releases.
 Git tags identify releases; local APK iteration numbers such as `v0.18` are build labels.
 
+## 1.1.3-alpha — 2026-11-01
+
+### Added
+
+- Android Quick Settings tile for ambient playback independent of the session timer.
+- Long-press sound selector with five track toggles and immediate playback control.
+- Separate Settings toggles for cyberpunk styling and a full-screen blurred background.
+- System-following app dark mode with midnight black, electric blue, and cantaloupe accents.
+- Tests for standalone playback, saved settings, headphone disconnect, cleanup, and tile updates.
+
+### Changed
+
+- Match the audio selector's light and dark designs to the updated app palette.
+- Use an orange Begin focus button in dark mode and a transparent in-app logo background.
+
 ## 1.1.2-alpha — 2026-11-01
 
 ### Added

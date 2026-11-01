@@ -16,7 +16,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.pomodoro.timer.ui.AppColors
 import com.pomodoro.update.ApkUpdateInstaller
 import com.pomodoro.update.AppUpdater
 import java.util.Locale
@@ -56,7 +55,7 @@ internal fun UpdateSection() {
             }
         }
         AppUpdater.State.OpeningInstaller -> Text("Opening Android's installer…", style = MaterialTheme.typography.bodySmall)
-        is AppUpdater.State.Error -> Text(state.message, color = AppColors.Terracotta, style = MaterialTheme.typography.bodySmall)
+        is AppUpdater.State.Error -> Text(state.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
     OutlinedButton(
         onClick = { updater.check() },

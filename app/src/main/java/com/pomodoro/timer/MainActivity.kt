@@ -13,6 +13,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,7 +60,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import android.graphics.Bitmap
-import com.pomodoro.timer.ui.AppColors
 import com.pomodoro.timer.ui.PomodoroTheme
 import com.pomodoro.timer.ui.SoftCardShape
 import kotlinx.coroutines.delay
@@ -94,6 +94,7 @@ fun PomodoroApp() {
         sessionSec = TimerStore.focusDurationSeconds(context)
     }
     val sessionActive = TimerStore.isSessionActive(context)
+    val useAccentButton = sessionActive || isSystemInDarkTheme()
     val sessionRun = TimerStore.sessionControlFingerprint(context)
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -130,7 +131,7 @@ fun PomodoroApp() {
         AmbientArt.loadAmbientSelection(context) { ambientArt = it }
     }
 
-    Box(Modifier.fillMaxSize().background(AppColors.Cream).statusBarsPadding()) {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding()) {
         TextButton(
             onClick = { settingsOpen = true },
             modifier = Modifier
@@ -169,7 +170,7 @@ fun PomodoroApp() {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = SoftCardShape,
-                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.65f)
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f)
             ) {
                 Column(
                     Modifier.padding(vertical = 20.dp, horizontal = 18.dp),
@@ -204,8 +205,8 @@ fun PomodoroApp() {
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = SoftCardShape,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (sessionActive) AppColors.Ink else AppColors.Terracotta,
-                    contentColor = androidx.compose.ui.graphics.Color.White
+                    containerColor = if (useAccentButton) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                    contentColor = if (useAccentButton) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary
                 )
             ) {
                 Text(
@@ -257,7 +258,7 @@ fun PomodoroApp() {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = SoftCardShape,
-                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.65f)
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f)
             ) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Ambient", style = MaterialTheme.typography.labelLarge)
@@ -374,7 +375,7 @@ private fun SessionTimeCard(runToken: SessionControlFingerprint, onSessionEnded:
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = SoftCardShape,
-        color = AppColors.CreamDeep.copy(alpha = 0.45f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
         tonalElevation = 0.dp
     ) {
         Column(

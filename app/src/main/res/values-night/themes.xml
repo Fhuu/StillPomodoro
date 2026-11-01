@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Pomodoro" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#030611</item>
+        <item name="android:statusBarColor">#030611</item>
+        <item name="android:navigationBarColor">#030611</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorAccent">#448AFF</item>
+    </style>
+    <style name="Theme.Pomodoro.Dialog" parent="android:Theme.Material.Dialog.NoActionBar">
+        <item name="android:colorAccent">#448AFF</item>
+    </style>
+    <style name="Theme.Pomodoro.SoundPanel" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">true</item>
+    </style>
+</resources>

@@ -351,7 +351,7 @@ private fun YoutubePlaylistRow(
 private enum class SourceTab { DEVICE, YOUTUBE, BUILT_IN }
 
 @Composable
-private fun BuiltInAmbientSection(
+internal fun BuiltInAmbientSection(
     selected: Set<BuiltInAmbientSound>,
     onSelectionChange: (Set<BuiltInAmbientSound>) -> Unit,
 ) {

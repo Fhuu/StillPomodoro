@@ -1,11 +1,15 @@
 package com.pomodoro.timer.ui
 
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -35,39 +39,68 @@ private val LightScheme = lightColorScheme(
     onBackground = AppColors.Ink,
     surface = Color.White,
     onSurface = AppColors.Ink,
+    onSurfaceVariant = AppColors.InkSoft,
+    surfaceVariant = AppColors.CreamDeep,
+    tertiary = AppColors.Ink,
+    onTertiary = Color.White,
     outline = AppColors.CreamDeep,
+    outlineVariant = AppColors.CreamDeep,
+)
+
+internal val DarkScheme = darkColorScheme(
+    primary = Color(0xFF448AFF),
+    onPrimary = Color(0xFF00112E),
+    primaryContainer = Color(0xFF123CA1),
+    onPrimaryContainer = Color.White,
+    secondary = Color(0xFF6D9FFF),
+    onSecondary = Color(0xFF001B47),
+    secondaryContainer = Color(0xFF0D2451),
+    onSecondaryContainer = Color(0xFFC8DDFF),
+    tertiary = Color(0xFFFFA877),
+    onTertiary = Color(0xFF351400),
+    tertiaryContainer = Color(0xFF50301D),
+    onTertiaryContainer = Color(0xFFFFDCC6),
+    background = Color(0xFF030611),
+    onBackground = Color(0xFFEDF6FF),
+    surface = Color(0xFF090E1A),
+    onSurface = Color(0xFFEDF6FF),
+    surfaceVariant = Color(0xFF121E33),
+    onSurfaceVariant = Color(0xFFAFC6DB),
+    outline = Color(0xFF5B7893),
+    outlineVariant = Color(0xFF293F55),
+    error = Color(0xFFFF9F8A),
+    onError = Color(0xFF3B0900),
+    errorContainer = Color(0xFF591D13),
+    onErrorContainer = Color(0xFFFFDAD2),
 )
 
 @Composable
-fun PomodoroTheme(content: @Composable () -> Unit) {
+fun PomodoroTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+    val colors = if (darkTheme) DarkScheme else LightScheme
     MaterialTheme(
-        colorScheme = LightScheme,
+        colorScheme = colors,
         typography = Typography(
             displayMedium = TextStyle(
                 fontFamily = FontFamily.Serif,
                 fontWeight = FontWeight.Light,
                 fontSize = 56.sp,
-                color = AppColors.Ink,
                 letterSpacing = (-1).sp
             ),
             titleLarge = TextStyle(
                 fontFamily = FontFamily.Serif,
                 fontWeight = FontWeight.Normal,
                 fontSize = 28.sp,
-                color = AppColors.Ink
             ),
             titleMedium = TextStyle(
                 fontWeight = FontWeight.Medium,
                 fontSize = 16.sp,
                 letterSpacing = 1.2.sp,
-                color = AppColors.InkSoft
             ),
-            bodySmall = TextStyle(fontSize = 13.sp, color = AppColors.InkSoft),
+            bodySmall = TextStyle(fontSize = 13.sp),
             labelLarge = TextStyle(
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 12.sp,
                 letterSpacing = 1.5.sp,
-                color = AppColors.InkSoft
             ),
         ),
         shapes = Shapes(
@@ -76,7 +109,9 @@ fun PomodoroTheme(content: @Composable () -> Unit) {
             medium = RoundedCornerShape(12.dp),
             large = RoundedCornerShape(16.dp),
         ),
-        content = content
+        content = {
+            CompositionLocalProvider(LocalContentColor provides colors.onBackground, content = content)
+        }
     )
 }
 

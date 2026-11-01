@@ -33,7 +33,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.pomodoro.timer.ui.AppColors
 import com.pomodoro.timer.ui.PomodoroTheme
 import com.pomodoro.timer.ui.SoftCardShape
 
@@ -59,7 +58,7 @@ private fun QuickStartSheet(onDismiss: () -> Unit) {
                 .fillMaxWidth()
                 .padding(20.dp),
             shape = SoftCardShape,
-            color = AppColors.Cream
+            color = MaterialTheme.colorScheme.background
         ) {
             Column(
                 modifier = Modifier
@@ -85,7 +84,7 @@ private fun QuickStartSheet(onDismiss: () -> Unit) {
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = SoftCardShape,
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Terracotta)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) { Text("Begin · ${TimerStore.formatFocusDurationLabel(focusSec)}") }
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), shape = SoftCardShape) {
                     Text("Cancel")
