@@ -15,10 +15,18 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import kotlin.random.Random
 
-/** Five offline ocean layers with independent slow volume modulation. Main thread only. */
+/** Offline layers with independent volume modulation; defaults to ocean waves. Main thread only. */
 internal class BreakAmbiencePlayer(
     private val context: Context,
     private val output: BuiltInAudioOutput? = null,
+    private val recordings: List<Int> = listOf(
+        R.raw.break_ocean_calm,
+        R.raw.break_ocean_gentle,
+        R.raw.break_ocean_lapping,
+        R.raw.break_ocean_shingle,
+        R.raw.break_ocean_distant,
+    ),
+    private val envelopeFactory: (Int) -> (Double) -> List<Float> = { BreakAmbienceEnvelope(it)::volumes },
     private val onStopped: () -> Unit = {},
 ) {
     private class Layer(val player: ExoPlayer) {
@@ -28,7 +36,7 @@ internal class BreakAmbiencePlayer(
 
     private val handler = Handler(Looper.getMainLooper())
     private val layers = mutableListOf<Layer>()
-    private var envelope = BreakAmbienceEnvelope(0)
+    private var envelope = envelopeFactory(0)
     private var startedAt = 0L
     private var stoppingAt: Long? = null
     private var mixGain = 1f
@@ -45,7 +53,7 @@ internal class BreakAmbiencePlayer(
                 releasePlayers()
                 return
             }
-            val volumes = envelope.volumes((now - startedAt) / 1000.0)
+            val volumes = envelope((now - startedAt) / 1000.0)
             if (stopping == null) mixGain += (targetMixGain - mixGain).coerceIn(-0.02f, 0.02f)
             val fadeOut = if (stopping == null) 1f else {
                 val t = ((now - stopping).toFloat() / FADE_OUT_MS).coerceIn(0f, 1f)
@@ -63,7 +71,7 @@ internal class BreakAmbiencePlayer(
     fun start() {
         if (isActive && stoppingAt == null) return
         releasePlayers(notifyStopped = false)
-        envelope = BreakAmbienceEnvelope(Random.nextInt())
+        envelope = envelopeFactory(Random.nextInt())
         mixGain = targetMixGain
         startedAt = SystemClock.elapsedRealtime()
         stoppingAt = null
@@ -71,13 +79,7 @@ internal class BreakAmbiencePlayer(
             .setUsage(C.USAGE_MEDIA)
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
-        listOf(
-            R.raw.break_ocean_calm,
-            R.raw.break_ocean_gentle,
-            R.raw.break_ocean_lapping,
-            R.raw.break_ocean_shingle,
-            R.raw.break_ocean_distant,
-        ).forEach { resource ->
+        recordings.forEach { resource ->
             val exo = ExoPlayer.Builder(context).build()
             output?.configure(exo)
             val layer = Layer(exo)
@@ -97,7 +99,7 @@ internal class BreakAmbiencePlayer(
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
-                    Log.e("BreakAmbience", "Ocean layer failed", error)
+                    Log.e("BreakAmbience", "Ambient layer failed", error)
                     stop(immediate = true)
                 }
             })

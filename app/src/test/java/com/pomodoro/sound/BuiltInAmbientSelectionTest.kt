@@ -55,7 +55,7 @@ class BuiltInAmbientSelectionTest {
     @Test
     fun unknownSavedSoundIdsAreIgnored() {
         TimerStore.prefs(context).edit().putStringSet(
-            "built_in_ambient_sounds", setOf("OCEAN_WAVES", "UNKNOWN_SOUND"),
+            "built_in_ambient_sounds", setOf("OCEAN_WAVES", "UNKNOWN_SOUND", "JAPANESE_CHIME", "BAMBOO_CHIMES"),
         ).commit()
         assertEquals(setOf(BuiltInAmbientSound.OCEAN_WAVES), TimerStore.builtInAmbientSounds(context))
     }

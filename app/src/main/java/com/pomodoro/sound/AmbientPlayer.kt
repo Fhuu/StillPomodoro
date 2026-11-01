@@ -41,20 +41,43 @@ class AmbientPlayer(private val context: Context) {
     private val breakAmbience = BreakAmbiencePlayer(appContext, output = builtInOutput) {
         onBuiltInStopped()
     }
+    private val roofStorm = BreakAmbiencePlayer(
+        appContext,
+        output = builtInOutput,
+        recordings = listOf(
+            R.raw.roof_storm_roof,
+            R.raw.roof_storm_roof_texture,
+            R.raw.roof_storm_roof_rumble,
+            R.raw.roof_storm_downpour,
+            R.raw.roof_storm_wind_gusts,
+            R.raw.roof_storm_wind_window,
+            R.raw.roof_storm_thunder,
+        ),
+        envelopeFactory = { RoofStormEnvelope(it)::volumes },
+    ) { onBuiltInStopped() }
+    private val oldHouse = BreakAmbiencePlayer(
+        appContext,
+        output = builtInOutput,
+        recordings = listOf(R.raw.old_house_frames, R.raw.old_house_windows),
+        envelopeFactory = { OldHouseEnvelope(it)::volumes },
+    ) { onBuiltInStopped() }
 
     private fun onBuiltInStopped() {
-        if (!breakAmbience.isActive && !boatHum.isActive) builtInOutput.release()
+        if (!breakAmbience.isActive && !boatHum.isActive && !roofStorm.isActive && !oldHouse.isActive) builtInOutput.release()
         updateBuiltInMixGains()
         val youtubeFocus = TimerStore.phase(appContext) == Phase.FOCUS &&
             TimerStore.ambientMode(appContext) == AmbientMode.YOUTUBE &&
             TimerStore.isSessionActive(appContext)
-        if (player == null && crossfadeOut == null && !breakAmbience.isActive && !boatHum.isActive && !youtubeFocus) stopSilent()
+        if (player == null && crossfadeOut == null && !breakAmbience.isActive && !boatHum.isActive && !roofStorm.isActive && !oldHouse.isActive && !youtubeFocus) stopSilent()
     }
 
     private fun updateBuiltInMixGains(immediate: Boolean = false) {
-        val gain = if (breakAmbience.isActive && boatHum.isActive) 0.50f else 1f
+        val activeGroups = listOf(breakAmbience.isActive, boatHum.isActive, roofStorm.isActive, oldHouse.isActive).count { it }
+        val gain = 1f / activeGroups.coerceAtLeast(1)
         breakAmbience.setMixGain(gain, immediate)
         boatHum.setMixGain(gain * builtInOutput.boatCompensation, immediate)
+        roofStorm.setMixGain(gain, immediate)
+        oldHouse.setMixGain(gain, immediate)
     }
 
     private val privateOutputTypes = setOf(
@@ -89,6 +112,8 @@ class AmbientPlayer(private val context: Context) {
         if (phase != Phase.BREAK && !builtInFocus) {
             breakAmbience.stop()
             boatHum.stop()
+            roofStorm.stop()
+            oldHouse.stop()
         }
         when (phase) {
             Phase.IDLE -> {
@@ -116,12 +141,16 @@ class AmbientPlayer(private val context: Context) {
         startMonitoring()
         if (BuiltInAmbientSound.OCEAN_WAVES in sounds) breakAmbience.start() else breakAmbience.stop()
         if (BuiltInAmbientSound.BOAT_HUM in sounds) boatHum.start() else boatHum.stop()
+        if (BuiltInAmbientSound.ROOF_STORM in sounds) roofStorm.start() else roofStorm.stop()
+        if (BuiltInAmbientSound.OLD_HOUSE in sounds) oldHouse.start() else oldHouse.stop()
         updateBuiltInMixGains()
     }
 
     fun release() {
         boatHum.stop(immediate = true)
         breakAmbience.stop(immediate = true)
+        roofStorm.stop(immediate = true)
+        oldHouse.stop(immediate = true)
         builtInOutput.release()
         fadeOutStop()
         YoutubeAudioPlayer.release()
@@ -135,6 +164,8 @@ class AmbientPlayer(private val context: Context) {
         refreshFocusOnResume = false
         boatHum.stop(immediate = true)
         breakAmbience.stop(immediate = true)
+        roofStorm.stop(immediate = true)
+        oldHouse.stop(immediate = true)
         builtInOutput.release()
         cancelCrossfade()
         YoutubeAudioPlayer.stop()
@@ -152,6 +183,8 @@ class AmbientPlayer(private val context: Context) {
     fun pauseForSessionHold() {
         boatHum.stop(immediate = true)
         breakAmbience.stop(immediate = true)
+        roofStorm.stop(immediate = true)
+        oldHouse.stop(immediate = true)
         cancelCrossfade()
         runCatching { crossfadeOut?.stop() }
         runCatching { crossfadeOut?.release() }
@@ -349,6 +382,8 @@ class AmbientPlayer(private val context: Context) {
         if (stopBuiltIn) {
             breakAmbience.stop()
             boatHum.stop()
+            roofStorm.stop()
+            oldHouse.stop()
         }
         cancelCrossfade()
         val outgoing = player ?: return stopSilent()
@@ -374,7 +409,7 @@ class AmbientPlayer(private val context: Context) {
     }
 
     private fun stopSilent() {
-        if (!breakAmbience.isActive && !boatHum.isActive) {
+        if (!breakAmbience.isActive && !boatHum.isActive && !roofStorm.isActive && !oldHouse.isActive) {
             stopMonitoring()
             abandonFocus()
             wasPrivateOutput = false
@@ -456,7 +491,7 @@ class AmbientPlayer(private val context: Context) {
     private fun onRouteMaybeChanged() {
         mainHandler.post {
             if (System.currentTimeMillis() < ignoreRouteChangesUntil) return@post
-            if (player?.isPlaying != true && !breakAmbience.isActive && !boatHum.isActive) return@post
+            if (player?.isPlaying != true && !breakAmbience.isActive && !boatHum.isActive && !roofStorm.isActive && !oldHouse.isActive) return@post
             val privateOut = hasPrivateOutput()
             if (wasPrivateOutput && !privateOut) {
                 silenceForPublicOutput()
@@ -468,9 +503,11 @@ class AmbientPlayer(private val context: Context) {
 
     private fun silenceForPublicOutput() {
         YoutubeAudioPlayer.stop()
-        if (breakAmbience.isActive || boatHum.isActive) {
+        if (breakAmbience.isActive || boatHum.isActive || roofStorm.isActive || oldHouse.isActive) {
             breakAmbience.stop(immediate = true)
             boatHum.stop(immediate = true)
+            roofStorm.stop(immediate = true)
+            oldHouse.stop(immediate = true)
             stopSilent()
             return
         }

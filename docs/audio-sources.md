@@ -55,8 +55,12 @@ Ocean waves is also available as a selectable item in the Built-in focus-audio s
 
 A second built-in sound, [Boat hum](boat-hum-sources.md), sequences real engine recordings with smooth crossfades rather than continuously layering its samples. Selecting both built-ins applies a smooth 0.50 gain multiplier to each group; selecting either alone restores its standalone gain.
 
+[Roof storm](roof-storm-sources.md) uses seven fractal-blended roof-rain, wind, and thunder recordings; the newer strongly metallic tin-shed recording is excluded. With multiple built-ins selected, each group targets 1 / active group count; outgoing groups remain counted through their fade.
+
 ## Built-in output gain (v0.18)
 
 All built-in players share a dedicated nonzero Android audio session with a LoudnessEnhancer targeting +13 dB after mixing (another +3 dB over v0.17), with platform peak compression. This raises ocean output without changing system media volume, source files, fractal envelopes or loop joins. Boat hum receives compensating pre-effect attenuation because its existing v0.16 gain already supplies +10 dB; it also receives the additional +3 dB. If the effect is unavailable, playback retains the previous gain settings. Built-ins do not request audio focus, allowing another music app to play alongside them. Device and YouTube playback retain their separate audio handling.
 
 Automated tests verify effect configuration, session isolation, unchanged system volume and cleanup. Actual device effect support and listening levels still require a phone check.
+
+[Old house](old-house-sources.md) is a separate built-in with sparse wooden creaks and window rattles, combinable with Roof storm or the other sounds.
