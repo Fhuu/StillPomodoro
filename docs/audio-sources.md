@@ -64,3 +64,5 @@ All built-in players share a dedicated nonzero Android audio session with a Loud
 Automated tests verify effect configuration, session isolation, unchanged system volume and cleanup. Actual device effect support and listening levels still require a phone check.
 
 [Old house](old-house-sources.md) is a separate built-in with sparse wooden creaks and window rattles, combinable with Roof storm or the other sounds.
+
+[Coastal wind](coastal-wind-sources.md) is an independent built-in using a natural coastal-path wind recording.

@@ -61,23 +61,30 @@ class AmbientPlayer(private val context: Context) {
         recordings = listOf(R.raw.old_house_frames, R.raw.old_house_windows),
         envelopeFactory = { OldHouseEnvelope(it)::volumes },
     ) { onBuiltInStopped() }
+    private val coastalWind = BreakAmbiencePlayer(
+        appContext,
+        output = builtInOutput,
+        recordings = listOf(R.raw.coastal_wind),
+        envelopeFactory = { CoastalWindEnvelope(it)::volumes },
+    ) { onBuiltInStopped() }
 
     private fun onBuiltInStopped() {
-        if (!breakAmbience.isActive && !boatHum.isActive && !roofStorm.isActive && !oldHouse.isActive) builtInOutput.release()
+        if (!breakAmbience.isActive && !boatHum.isActive && !roofStorm.isActive && !oldHouse.isActive && !coastalWind.isActive) builtInOutput.release()
         updateBuiltInMixGains()
         val youtubeFocus = TimerStore.phase(appContext) == Phase.FOCUS &&
             TimerStore.ambientMode(appContext) == AmbientMode.YOUTUBE &&
             TimerStore.isSessionActive(appContext)
-        if (player == null && crossfadeOut == null && !breakAmbience.isActive && !boatHum.isActive && !roofStorm.isActive && !oldHouse.isActive && !youtubeFocus) stopSilent()
+        if (player == null && crossfadeOut == null && !breakAmbience.isActive && !boatHum.isActive && !roofStorm.isActive && !oldHouse.isActive && !coastalWind.isActive && !youtubeFocus) stopSilent()
     }
 
     private fun updateBuiltInMixGains(immediate: Boolean = false) {
-        val activeGroups = listOf(breakAmbience.isActive, boatHum.isActive, roofStorm.isActive, oldHouse.isActive).count { it }
+        val activeGroups = listOf(breakAmbience.isActive, boatHum.isActive, roofStorm.isActive, oldHouse.isActive, coastalWind.isActive).count { it }
         val gain = 1f / activeGroups.coerceAtLeast(1)
         breakAmbience.setMixGain(gain, immediate)
         boatHum.setMixGain(gain * builtInOutput.boatCompensation, immediate)
         roofStorm.setMixGain(gain, immediate)
         oldHouse.setMixGain(gain, immediate)
+        coastalWind.setMixGain(gain, immediate)
     }
 
     private val privateOutputTypes = setOf(
@@ -114,6 +121,7 @@ class AmbientPlayer(private val context: Context) {
             boatHum.stop()
             roofStorm.stop()
             oldHouse.stop()
+            coastalWind.stop()
         }
         when (phase) {
             Phase.IDLE -> {
@@ -143,6 +151,7 @@ class AmbientPlayer(private val context: Context) {
         if (BuiltInAmbientSound.BOAT_HUM in sounds) boatHum.start() else boatHum.stop()
         if (BuiltInAmbientSound.ROOF_STORM in sounds) roofStorm.start() else roofStorm.stop()
         if (BuiltInAmbientSound.OLD_HOUSE in sounds) oldHouse.start() else oldHouse.stop()
+        if (BuiltInAmbientSound.COASTAL_WIND in sounds) coastalWind.start() else coastalWind.stop()
         updateBuiltInMixGains()
     }
 
@@ -151,6 +160,7 @@ class AmbientPlayer(private val context: Context) {
         breakAmbience.stop(immediate = true)
         roofStorm.stop(immediate = true)
         oldHouse.stop(immediate = true)
+        coastalWind.stop(immediate = true)
         builtInOutput.release()
         fadeOutStop()
         YoutubeAudioPlayer.release()
@@ -166,6 +176,7 @@ class AmbientPlayer(private val context: Context) {
         breakAmbience.stop(immediate = true)
         roofStorm.stop(immediate = true)
         oldHouse.stop(immediate = true)
+        coastalWind.stop(immediate = true)
         builtInOutput.release()
         cancelCrossfade()
         YoutubeAudioPlayer.stop()
@@ -185,6 +196,7 @@ class AmbientPlayer(private val context: Context) {
         breakAmbience.stop(immediate = true)
         roofStorm.stop(immediate = true)
         oldHouse.stop(immediate = true)
+        coastalWind.stop(immediate = true)
         cancelCrossfade()
         runCatching { crossfadeOut?.stop() }
         runCatching { crossfadeOut?.release() }
@@ -384,6 +396,7 @@ class AmbientPlayer(private val context: Context) {
             boatHum.stop()
             roofStorm.stop()
             oldHouse.stop()
+            coastalWind.stop()
         }
         cancelCrossfade()
         val outgoing = player ?: return stopSilent()
@@ -409,7 +422,7 @@ class AmbientPlayer(private val context: Context) {
     }
 
     private fun stopSilent() {
-        if (!breakAmbience.isActive && !boatHum.isActive && !roofStorm.isActive && !oldHouse.isActive) {
+        if (!breakAmbience.isActive && !boatHum.isActive && !roofStorm.isActive && !oldHouse.isActive && !coastalWind.isActive) {
             stopMonitoring()
             abandonFocus()
             wasPrivateOutput = false
@@ -491,7 +504,7 @@ class AmbientPlayer(private val context: Context) {
     private fun onRouteMaybeChanged() {
         mainHandler.post {
             if (System.currentTimeMillis() < ignoreRouteChangesUntil) return@post
-            if (player?.isPlaying != true && !breakAmbience.isActive && !boatHum.isActive && !roofStorm.isActive && !oldHouse.isActive) return@post
+            if (player?.isPlaying != true && !breakAmbience.isActive && !boatHum.isActive && !roofStorm.isActive && !oldHouse.isActive && !coastalWind.isActive) return@post
             val privateOut = hasPrivateOutput()
             if (wasPrivateOutput && !privateOut) {
                 silenceForPublicOutput()
@@ -503,11 +516,12 @@ class AmbientPlayer(private val context: Context) {
 
     private fun silenceForPublicOutput() {
         YoutubeAudioPlayer.stop()
-        if (breakAmbience.isActive || boatHum.isActive || roofStorm.isActive || oldHouse.isActive) {
+        if (breakAmbience.isActive || boatHum.isActive || roofStorm.isActive || oldHouse.isActive || coastalWind.isActive) {
             breakAmbience.stop(immediate = true)
             boatHum.stop(immediate = true)
             roofStorm.stop(immediate = true)
             oldHouse.stop(immediate = true)
+            coastalWind.stop(immediate = true)
             stopSilent()
             return
         }

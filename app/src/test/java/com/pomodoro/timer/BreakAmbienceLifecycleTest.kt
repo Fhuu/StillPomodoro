@@ -54,6 +54,76 @@ class BreakAmbienceLifecycleTest {
     }
 
     @Test
+    fun coastalWindIsIndependentlySelectableAndSupportsPauseResumeAndDisconnect() {
+        val house = BuiltInAmbientSound.valueOf("COASTAL_WIND")
+        TimerStore.setBuiltInAmbientSounds(context, setOf(house))
+        assertEquals("Coastal wind", TimerStore.ambientLabel(context))
+        assertEquals(setOf(house), TimerStore.builtInAmbientSounds(context))
+        TimerStore.setPhase(context, Phase.FOCUS)
+        ambient.sync(Phase.FOCUS)
+        assertTrue(coastalMix().isActive)
+        assertFalse(stormMix().isActive || breakMix().isActive || boatMix().isActive)
+        val layersField = BreakAmbiencePlayer::class.java.getDeclaredField("layers").apply { isAccessible = true }
+        val layers = layersField.get(coastalMix()) as List<*>
+        val names = layers.map { layer ->
+            val field = layer!!.javaClass.getDeclaredField("player").apply { isAccessible = true }
+            val player = field.get(layer) as ExoPlayer
+            context.resources.getResourceEntryName(player.currentMediaItem!!.localConfiguration!!.uri.lastPathSegment!!.toInt())
+        }.toSet()
+        assertEquals(setOf("coastal_wind"), names)
+        ambient.pauseForSessionHold()
+        assertFalse(coastalMix().isActive)
+        ambient.resumeFromSessionHold(Phase.FOCUS)
+        assertTrue(coastalMix().isActive)
+        context.sendBroadcast(Intent(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(coastalMix().isActive)
+    }
+
+    @Test
+    fun fiveGroupsKeepCoastalWindActiveAndRestoreItsSoloGain() {
+        val wind = BuiltInAmbientSound.valueOf("COASTAL_WIND")
+        TimerStore.setBuiltInAmbientSounds(context, setOf(wind, BuiltInAmbientSound.OCEAN_WAVES, BuiltInAmbientSound.BOAT_HUM, BuiltInAmbientSound.ROOF_STORM, BuiltInAmbientSound.OLD_HOUSE))
+        TimerStore.setPhase(context, Phase.FOCUS)
+        ambient.sync(Phase.FOCUS)
+        assertTrue(coastalMix().isActive && houseMix().isActive && stormMix().isActive && breakMix().isActive && boatMix().isActive)
+        assertEquals(0.2f, targetGain(coastalMix()), 0.0001f)
+        TimerStore.setBuiltInAmbientSounds(context, setOf(wind))
+        ambient.sync(Phase.FOCUS)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        assertTrue(coastalMix().isActive)
+        assertEquals(1f, targetGain(coastalMix()), 0.0001f)
+        assertFalse(houseMix().isActive || stormMix().isActive || breakMix().isActive || boatMix().isActive)
+        context.sendBroadcast(Intent(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(coastalMix().isActive)
+    }
+
+    @Test
+    fun coastalRestartDuringFadeSurvivesAndBreaksReturnToOceanOnly() {
+        val house = BuiltInAmbientSound.valueOf("COASTAL_WIND")
+        TimerStore.setBuiltInAmbientSounds(context, setOf(house))
+        TimerStore.setPhase(context, Phase.FOCUS)
+        ambient.sync(Phase.FOCUS)
+        TimerStore.setBuiltInAmbientSounds(context, emptySet())
+        ambient.sync(Phase.FOCUS)
+        TimerStore.setBuiltInAmbientSounds(context, setOf(house))
+        ambient.sync(Phase.FOCUS)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        assertTrue(coastalMix().isActive)
+        TimerStore.setPhase(context, Phase.BREAK)
+        ambient.sync(Phase.BREAK)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        assertTrue(breakMix().isActive)
+        assertFalse(coastalMix().isActive || stormMix().isActive || boatMix().isActive)
+        TimerStore.setPhase(context, Phase.FOCUS)
+        ambient.sync(Phase.FOCUS)
+        ambient.stopImmediate()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(60))
+        assertFalse(coastalMix().isActive)
+    }
+
+    @Test
     fun oldHouseIsIndependentlySelectableAndSupportsPauseResumeAndDisconnect() {
         val house = BuiltInAmbientSound.valueOf("OLD_HOUSE")
         TimerStore.setBuiltInAmbientSounds(context, setOf(house))
@@ -426,6 +496,11 @@ class BreakAmbienceLifecycleTest {
 
     private fun stormMix(): BreakAmbiencePlayer {
         val field = AmbientPlayer::class.java.getDeclaredField("roofStorm").apply { isAccessible = true }
+        return field.get(ambient) as BreakAmbiencePlayer
+    }
+
+    private fun coastalMix(): BreakAmbiencePlayer {
+        val field = AmbientPlayer::class.java.getDeclaredField("coastalWind").apply { isAccessible = true }
         return field.get(ambient) as BreakAmbiencePlayer
     }
 
