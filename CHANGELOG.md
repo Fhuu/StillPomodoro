@@ -3,6 +3,15 @@
 Versions use `MAJOR.MINOR.PATCH` with an `-alpha` suffix for preview releases.
 Git tags identify releases; local APK iteration numbers such as `v0.18` are build labels.
 
+## 1.1.2-alpha — 2026-11-01
+
+### Added
+
+- Check for updates in Settings using published GitHub Releases, including alpha versions.
+- In-app APK downloads with progress and Android installation confirmation.
+- APK size, SHA-256, package, signing-certificate, and newer-build validation before installation.
+- Coverage for release selection, download integrity, permission handling, and installer handoff.
+
 ## 1.1.1-alpha — 2026-11-01
 
 ### Added
