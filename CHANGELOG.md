@@ -3,6 +3,23 @@
 Versions use `MAJOR.MINOR.PATCH` with an `-alpha` suffix for preview releases.
 Git tags identify releases; local APK iteration numbers such as `v0.18` are build labels.
 
+## 1.1.1-alpha — 2026-11-01
+
+### Added
+
+- Roof storm with seven offline roof-rain, wind, and thunder recordings blended with independent fractal volume modulation.
+- Separately selectable Old house ambience with subtle wooden creaks and window rattles.
+- Separately selectable Coastal wind using a natural coastal-path recording with slow fractal variation.
+- Lifecycle and mixing coverage for the five built-in sounds, including pause/resume, output routing, fade cancellation, and combined gain restoration.
+
+### Changed
+
+- Group audio playback, device-folder selection, and YouTube code under `com.pomodoro.sound`.
+- Group island UI under `com.pomodoro.island` and settings UI under `com.pomodoro.setting`.
+- Balance simultaneous built-in sound groups by their active count, including outgoing fades.
+- Retain the earlier roof-rain recordings and exclude the newer strongly metallic tin-shed recording.
+- Ignore saved Japanese and bamboo chime selections after removing those experimental sounds.
+
 ## 1.1.0-alpha — 2026-10-30
 
 ### Added
