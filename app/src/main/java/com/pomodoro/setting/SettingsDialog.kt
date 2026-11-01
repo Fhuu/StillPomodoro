@@ -115,6 +115,7 @@ fun SettingsDialog(open: Boolean, onDismiss: () -> Unit, onChanged: () -> Unit) 
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text("Settings", style = MaterialTheme.typography.titleLarge)
+                UpdateSection()
                 Text("Permissions", style = MaterialTheme.typography.labelLarge)
                 items.forEach { item ->
                     Row(
