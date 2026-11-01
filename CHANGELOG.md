@@ -3,7 +3,7 @@
 Versions use `MAJOR.MINOR.PATCH` with an `-alpha` suffix for preview releases.
 Git tags identify releases; local APK iteration numbers such as `v0.18` are build labels.
 
-## 1.1.3-alpha — 2026-11-01
+## 1.2.0-alpha — 2026-11-01
 
 ### Added
 
